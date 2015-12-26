@@ -6,10 +6,11 @@ NUMNODE = 6
 NUMRACK = 3
 NUMTASK = 2
 NUMBLOCK = NUMTASK
-NUMSTAGE = 0
+NUMSTAGE = 1
 NUMREPL = 2
 
-EnableTaskSymmetry = True
+EnableStateCollapsing = False
+EnableTaskSymmetry = EnableStateCollapsing and False
 EnableOffRackReplica = False
 
 def getRackID(node):
@@ -23,13 +24,20 @@ class Attempt(object):
   def clone(self):
     return Attempt(self.datanode,self.mapnode)
 
+class HdfsFile(object):
+  def __init__(self, numblock, numrepl):
+    self.numblock = numblock
+    self.numrepl = numrepl
+    self.blocks = [[0]*numrepl for i in xrange(0,numblock)]
+
+  def clone(self):
+    klon = HdfsFile(self.numblock, self.numrepl)
+    klon.blocks = copy.deepcopy(self.blocks)
+    return klon
 
 class Task(object):
   def __init__(self):
     self.attempts = []
-    self.splitloc = []
-    self.bitcodes = []
-    self.splitbitmap = 0
 
   def addAttempt(self, att):
     self.attempts.append(att)
@@ -37,40 +45,20 @@ class Task(object):
   def getNumAttempt(self):
     return len(self.attempts)
 
-  def getBitmap(self, append):
-    return self.getSplitBitmap() * ((2**4)**append) \
-      + self.getTaskBitmap(append)
-
-  def getTaskBitmap(self, append):
-    code = 0
-    mult = 1
-    for i in xrange(0,len(self.bitcodes)):
-      code = code * (2**4) + self.bitcodes[i]
-      append -= 1
-    while (append>0):
-      code = code * (2**4)
-      append -= 1
-    return code
-
-  def getSplitBitmap(self):
-    return self.splitbitmap
-
   def clone(self):
     ctask = Task()
     for att in self.attempts:
       ctask.addAttempt(att.clone())
-    ctask.bitcodes = list(self.bitcodes)
-    ctask.splitloc = list(self.splitloc)
-    ctask.splitbitmap = self.splitbitmap
     return ctask
-
 
 class SimTopology(object):
   def __init__(self, failure):
-    self.runstage = -2
+    self.runstage = -1
     self.jobprogress = .0
     self.currentstate = 0
     self.count = 1
+
+    self.file = HdfsFile(NUMBLOCK, NUMREPL)
 
     self.tasks = []
     for i in xrange(0,NUMTASK):
@@ -83,19 +71,6 @@ class SimTopology(object):
     task = self.tasks[tid]
     task.addAttempt(att)
 
-    state = 0
-    bdn = (att.datanode == self.badnode) and (att.datanode <> -1)
-    bmp = (att.mapnode == self.badnode) and (att.mapnode <> -1)
-    bdnr = (getRackID(att.datanode) == self.badrack) \
-      and (att.datanode <> -1)
-    bmpr = (getRackID(att.mapnode) == self.badrack) \
-      and (att.mapnode <> -1)
-    state = state * 2 + (1 if bdn else 0)
-    state = state * 2 + (1 if bmp else 0)
-    state = state * 2 + (1 if bdnr else 0)
-    state = state * 2 + (1 if bmpr else 0)
-    task.bitcodes.append(state)
-
   def clone(self):
     klon = SimTopology((self.badnode,self.badrack))
     klon.runstage = self.runstage
@@ -103,33 +78,17 @@ class SimTopology(object):
     klon.currentstate = self.currentstate
     klon.count = self.count
 
+    klon.file = self.file.clone()
     klon.tasks = [task.clone() for task in self.tasks]
 
     return klon
 
-  def setSplitLoc(self,blockid,repl):
-    task = self.tasks[blockid]
-    bits = [(x,(x == self.badnode)*2+(getRackID(x) == self.badrack)) \
-      for x in repl]
-    if EnableTaskSymmetry:
-      bits = sorted(bits, key=lambda x:x[1])
-    task.splitloc = list([a for (a,b) in bits])
-    task.splitbitmap = reduce(lambda x,y:x*4+y[1], bits, 0)
+  def setBlocks(self,blockid,repl):
+    self.file.blocks[blockid] = repl
 
-  def updateCount(self):
+  def updateProgress(self):
     self.runstage += 1
     stage = self.runstage + 1
-
-    if EnableTaskSymmetry:
-      self.tasks = sorted(self.tasks, key=lambda x:x.getBitmap(stage))
-
-    code = 0
-    for i in xrange(0,len(self.tasks)):
-      code = code * (2**(2*NUMREPL)) + self.tasks[i].getSplitBitmap()
-    for i in xrange(0,len(self.tasks)):
-      task = self.tasks[i]
-      code = code * (2**(NUMTASK*stage)) + task.getTaskBitmap(stage)
-    self.currentstate = code
 
     if (self.runstage >= 0):
       # calc job progress
@@ -138,16 +97,13 @@ class SimTopology(object):
         reduce(lambda x,y: x+(0 if self.isSlow(y) else tp), \
         [att.attempts[-1] for att in self.tasks], .0) 
 
-  def getBitmap(self):
-    return self.currentstate
-
   def isSlow(self,att):
-    bdn = (att.datanode == self.badnode) and (att.datanode <> -1)
-    bmp = (att.mapnode == self.badnode) and (att.mapnode <> -1)
+    bdn = (att.datanode == self.badnode) and (self.badnode <> -1)
+    bmp = (att.mapnode == self.badnode) and (self.badnode <> -1)
     bdnr = (getRackID(att.datanode) == self.badrack) \
-      and (att.datanode <> -1)
+      and (self.badrack <> -1)
     bmpr = (getRackID(att.mapnode) == self.badrack) \
-      and (att.mapnode <> -1)
+      and (self.badrack <> -1)
     return ((not bdn and bmp) or (bdn and not bmp)) or \
       ((not bdnr and bmpr) or (bdnr and not bmpr))
 
@@ -162,6 +118,7 @@ class SimTopology(object):
   def getCount(self):
     return self.count
 
+
 class Speculator:
   __metaclass__ = ABCMeta
   @abstractmethod
@@ -170,7 +127,7 @@ class Speculator:
 class BasicSE(Speculator):
   def isAttemptAllowed(self,sim,tid,att):
     dislike = [a.mapnode for a in sim.tasks[tid].attempts]
-    locatedDN = set(sim.tasks[tid].splitloc)
+    locatedDN = set(sim.file.blocks[tid])
 
     differentWorknode = not (att.mapnode in dislike)
     canPickDatanode = (att.datanode in locatedDN)
@@ -183,14 +140,165 @@ class BasicSE(Speculator):
 
   def getPossibleBackups(self,sim,tid):
     backups = []
-    locatedDN = sim.tasks[tid].splitloc
-    for i in locatedDN:
-      for j in xrange(0,NUMNODE):
-        att = Attempt(i,j)
+    locatedDN = sim.file.blocks[tid]
+    for dn in locatedDN:
+      for map in xrange(0,NUMNODE):
+        att = Attempt(dn,map)
         if self.isAttemptAllowed(sim,tid,att):
           backups.append(att)
     return backups
 
+
+class Bitcoder(object):
+  def getNodeBitmap(self,sim,node):
+    return (node == sim.badnode)*2 + (getRackID(node) == sim.badrack)
+
+  def getBlockBitmap(self,sim,repl):
+    return reduce(lambda x,y:x*4+self.getNodeBitmap(sim,y), repl , 0)
+
+  def getFileBitmap(self,sim):
+    blockbit = reduce(lambda x,y:x*(4**NUMREPL)+self.getBlockBitmap(sim,y), \
+      sim.file.blocks, 0)
+    return blockbit
+
+  def getAttemptBitmap(self,sim,att):     
+    state = 0
+    bdn = (att.datanode == sim.badnode) and (sim.badnode <> -1)
+    bmp = (att.mapnode == sim.badnode) and (sim.badnode <> -1)
+    bdnr = (getRackID(att.datanode) == sim.badrack) \
+      and (sim.badrack <> -1)
+    bmpr = (getRackID(att.mapnode) == sim.badrack) \
+      and (sim.badrack <> -1)
+    state = state * 2 + bdn
+    state = state * 2 + bmp
+    state = state * 2 + bdnr
+    state = state * 2 + bmpr
+    return state
+   
+  def getTaskBitmap(self,sim,task):
+    return reduce(lambda x,y: x*16 + \
+      self.getAttemptBitmap(sim,y),task.attempts,0)
+
+  def getTasksBitmap(self,sim):
+    stage = sim.runstage + 1
+    return reduce(lambda x,y: x*(16**stage) + \
+      self.getTaskBitmap(sim,y)*(16**(stage-len(y.attempts))),sim.tasks,0)
+
+  def getSimBitmap(self,sim):
+    stage = sim.runstage + 1
+    return self.getFileBitmap(sim) * (16**(len(sim.tasks)*stage)) + \
+      self.getTasksBitmap(sim)
+
+  def getFormattedSimBitmap(self,sim):
+    taskBitLength = (sim.runstage+1)*4
+    outstr = ""
+
+    dnbit = ("{0:0" + str(2*NUMBLOCK*NUMREPL) + "b}").format(BC.getFileBitmap(sim))
+    outstr += ",".join([dnbit[i:i+2*NUMREPL] for i in xrange(0,len(dnbit),2*NUMREPL)])
+
+    taskBits = []
+    for task in sim.tasks:
+      st = ("{0:0" + str(taskBitLength) + "b}").format(BC.getTaskBitmap(sim,task))
+      taskbit = ",".join([st[i:i+4] for i in xrange(0,len(st),4)])
+      taskBits.append(taskbit)
+    outstr += "-" + "|".join(taskBits)
+    return outstr
+
+
+class Optimizer(object):
+  def __init__(self):
+    self.bc = Bitcoder()
+
+  def reorderBlocks(self,sim):
+    for i in xrange(0,len(sim.file.blocks)):
+      bits = [(x,self.bc.getNodeBitmap(sim,x)) for x in sim.file.blocks[i]]
+      bits = sorted(bits, key=lambda x:x[1])
+      sim.file.blocks[i] = list([a for (a,b) in bits])
+
+    loclist = [(x,self.bc.getBlockBitmap(sim,x)) for x in sim.file.blocks]
+    loclist = sorted(loclist, key=lambda x:x[1])
+    sim.file.blocks = list([a for (a,b) in loclist])
+
+  def reorderTasks(self,sim):
+    tuples = []
+    stage = sim.runstage + 1
+    for i in xrange(0,len(sim.tasks)):
+      tuple = (sim.tasks[i],sim.file.blocks[i], \
+        self.bc.getBlockBitmap(sim,sim.file.blocks[i]) * (16**stage) +\
+        self.bc.getTaskBitmap(sim,sim.tasks[i]))
+      tuples.append(tuple)
+    tuples = sorted(tuples, key = lambda x:x[2])
+    for i in xrange(0,len(sim.tasks)):
+      sim.tasks[i] = tuples[i][0]
+      sim.file.blocks[i] = tuples[i][1]
+
+
+class Printer(object):
+  def __init__(self):
+    self.bc = Bitcoder()
+
+  def getTaskTopology(self,sim):
+    topo = []
+    for i in xrange(0,len(sim.tasks)):
+      task = sim.tasks[i]
+      for j in xrange(0,len(task.attempts)):
+        att = task.attempts[j]
+        tuple = ("t%d_%d" % (i,j), att.datanode, att.mapnode)
+        if (tuple[1] == -1) and (tuple[2] == -1):
+          continue
+        else:
+          topo.append(tuple)
+    return topo
+
+  def isLimplock(self,sim):
+    limp = False
+    if sim.runstage >= 0:
+      for i in xrange(0,NUMTASK):
+        limp = limp or sim.isSlow(sim.tasks[i].attempts[-1])
+    return limp
+
+  def printPerms(self,queue):
+    uniquePerm = len(queue)
+    uniqueSucc = 0
+    uniqueFail = 0
+    totalPerm = 0
+    totalSucc = 0
+    totalFail = 0
+
+    for v in queue.values():
+      limp = self.isLimplock(v)
+      uniqueSucc += not limp
+      uniqueFail += limp
+      totalPerm += v.getCount()
+      totalSucc += v.getCount() if not limp else 0
+      totalFail += v.getCount() if limp else 0
+
+    print "Unique permutation: ", uniquePerm
+    print "Unique success: ", uniqueSucc
+    print "Unique failure: ", uniqueFail
+    print "Total permutation: ", totalPerm
+    print "Total success: ", totalSucc
+    print "Total failure: ", totalFail
+    print "Fail ratio: ", totalFail/float(totalPerm) 
+    print "====================================="
+    for k,v in sorted(queue.items(), key=lambda x:x[0]):
+      print "Hash key: ", k
+      if EnableStateCollapsing:
+        print "Hash bit: ", self.bc.getFormattedSimBitmap(v)
+      print "Total count: ", v.getCount()
+      print "Ratio: ", v.getCount()/float(totalPerm)
+      print "Bad node: ", v.badnode
+      print "Bad rack: ", v.badrack
+      print "Topology: ", self.getTaskTopology(v)
+      print "Datanodes: ", v.file.blocks
+      print "IsLimplock:", self.isLimplock(v)
+      print "====================================="
+
+
+
+SPEC = BasicSE()
+BC = Bitcoder()
+OPT = Optimizer()
 
 def permuteBlocks(sim,blockid,repl):
   ret = []
@@ -203,29 +311,30 @@ def permuteBlocks(sim,blockid,repl):
       racks = set([getRackID(x) for x in repl])
       if not EnableOffRackReplica or (len(racks) > 1):
         psim = sim.clone()
-        psim.setSplitLoc(blockid,repl)
+        psim.setBlocks(blockid,repl)
         ret.extend(permuteBlocks(psim,blockid+1,[]))
   else:
-    sim.updateCount()
+    if EnableTaskSymmetry:
+      OPT.reorderBlocks(sim)
     ret.append(sim)
   return ret
 
 def permuteOriginal(sim,tid):
   ret = []
   if tid < NUMTASK:
-    for i in sim.tasks[tid].splitloc:
-      for j in xrange(0,NUMNODE):
-        att = Attempt(i,j)
+    for dn in sim.file.blocks[tid]:
+      for map in xrange(0,NUMNODE):
+        att = Attempt(dn,map)
         psim = sim.clone()
         psim.addAttempt(tid,att)
         ret.extend(permuteOriginal(psim,tid+1))
     return ret
   else:
-    sim.updateCount()
+    sim.updateProgress()
+    if EnableTaskSymmetry:
+      OPT.reorderTasks(sim)
     ret.append(sim)
   return ret  
-
-SPEC = BasicSE()
 
 def permuteStage(sim,tid):
   ret = []
@@ -241,81 +350,15 @@ def permuteStage(sim,tid):
       ret.extend(permuteStage(sim,tid+1))
     return ret
   else:
-    sim.updateCount()
+    sim.updateProgress()
+    if EnableTaskSymmetry:
+      OPT.reorderTasks(sim)
     ret.append(sim)
   return ret  
 
-def getFormatBit(sim):
-  stage = sim.runstage + 1
-  taskBitLength = NUMSTAGE*4
-  outstr = ""
-  taskBits = []
-  for task in sim.tasks:
-    dnbit = ("{0:0" + str(2*NUMREPL) + "b}").format(task.getSplitBitmap())
-    taskBits.append(dnbit)
-  outstr += ",".join(taskBits)
-  taskBits = []
-  for task in sim.tasks:
-    st = ("{0:0" + str(taskBitLength) + "b}").format(task.getTaskBitmap(stage))
-    taskbit = ",".join([st[i:i+4] for i in xrange(0,len(st),4)])
-    taskBits.append(taskbit)
-  outstr += "-" + "|".join(taskBits)
-  return outstr
-
-def getTaskTopology(sim):
-  topo = []
-  for i in xrange(0,len(sim.tasks)):
-    task = sim.tasks[i]
-    for j in xrange(0,len(task.attempts)):
-      att = task.attempts[j]
-      tuple = ("t%d_%d" % (i,j), att.datanode, att.mapnode)
-      if (tuple[1] == -1) and (tuple[2] == -1):
-          continue
-      else:
-        topo.append(tuple)
-  return topo
-
-def isLimplock(sim):
-  limp = False
-  if sim.runstage >= 0:
-    for i in xrange(0,NUMTASK):
-      limp = limp or sim.isSlow(sim.tasks[i].attempts[-1])
-  return limp
-
-def printPerms(queue):
-  uniquePerm = len(queue)
-  uniqueSucc = reduce(lambda x,y: x+(1 if not isLimplock(y) else 0), \
-    queue.values(),0)
-  uniqueFail = reduce(lambda x,y: x+(1 if isLimplock(y) else 0), \
-    queue.values(),0)
-  totalPerm = reduce(lambda x,y: x+y.getCount(),queue.values(),0)
-  totalSucc = reduce(lambda x,y: x+(y.getCount() if not isLimplock(y) else 0), \
-    queue.values(),0)
-  totalFail = reduce(lambda x,y: x+(y.getCount() if isLimplock(y) else 0), \
-    queue.values(),0)
-
-  print "Unique permutation: ", uniquePerm
-  print "Unique success: ", uniqueSucc
-  print "Unique failure: ", uniqueFail
-  print "Total permutation: ", totalPerm
-  print "Total success: ", totalSucc
-  print "Total failure: ", totalFail
-  print "Fail probability: ", totalFail/float(totalPerm) 
-  print "====================================="
-  for k,v in sorted(queue.items(), key=lambda x:x[0]):
-    print "Hash key: ", k
-    print "Hash bit: ", getFormatBit(v)
-    print "Total count: ", v.getCount()
-    print "Probability: ", v.getCount()/float(totalPerm)
-    print "Bad node: ", v.badnode
-    print "Bad rack: ", v.badrack
-    print "Topology: ", getTaskTopology(v)
-    print "Datanodes: ", [t.splitloc for t in v.tasks]
-    print "IsLimplock:", isLimplock(v)
-    print "====================================="
-
-
 def main():
+  printer = Printer()
+
   failurequeue = []
   for i in xrange(0,NUMNODE):
     failurequeue.append(SimTopology((i,-1)))
@@ -325,57 +368,63 @@ def main():
   """ stage -1: permute datablocks  """
   if NUMSTAGE > -1:
     dnqueue = dict()
+    id = 0
     while len(failurequeue) > 0:
       sim = failurequeue.pop(0)
       perms = permuteBlocks(sim, 0, [])
       while len(perms) > 0:
         nextsim = perms.pop(0)
-        if nextsim.getBitmap() in dnqueue:
-          sameperm = dnqueue[nextsim.getBitmap()]
+        id = BC.getSimBitmap(nextsim) if EnableStateCollapsing else (id+1)
+        if id in dnqueue:
+          sameperm = dnqueue[id]
           sameperm.count += nextsim.count
         else:
-          dnqueue[nextsim.getBitmap()] = nextsim
+          dnqueue[id] = nextsim
 
   if NUMSTAGE == 0:
-    printPerms(dnqueue)
+    printer.printPerms(dnqueue)
     
 
   """ stage  0: permute original tasks """
   if NUMSTAGE > 0:
     blockperms = dnqueue.values()
     originalqueue = dict()
+    id = 0
     while len(blockperms) > 0:
       sim = blockperms.pop(0)
       perms = permuteOriginal(sim, 0)
       while len(perms) > 0:
         nextsim = perms.pop(0)
-        if nextsim.getBitmap() in originalqueue:
-          sameperm = originalqueue[nextsim.getBitmap()]
+        id = BC.getSimBitmap(nextsim) if EnableStateCollapsing else (id+1)
+        if id in originalqueue:
+          sameperm = originalqueue[id]
           sameperm.count += nextsim.count
         else:
-          originalqueue[nextsim.getBitmap()] = nextsim
+          originalqueue[id] = nextsim
 
   if NUMSTAGE == 1:
-    printPerms(originalqueue)
+    printer.printPerms(originalqueue)
 
 
   """ stage  1: run SE """
   if NUMSTAGE > 1:
     ori = originalqueue.values()
     finalStates = dict()
+    id = 0
     while (len(ori) > 0):
       sim = ori.pop(0)
       perms = permuteStage(sim, 0)
       while len(perms) > 0:
         nextsim = perms.pop(0)
-        if nextsim.getBitmap() in finalStates:
-          sameperm = finalStates[nextsim.getBitmap()]
+        id = BC.getSimBitmap(nextsim) if EnableStateCollapsing else (id+1)
+        if id in finalStates:
+          sameperm = finalStates[id]
           sameperm.count += nextsim.count
         else:
-          finalStates[nextsim.getBitmap()] = nextsim
+          finalStates[id] = nextsim
 
   if NUMSTAGE == 2:
-    printPerms(finalStates)
+    printer.printPerms(finalStates)
 
 if __name__ == '__main__':
   main()
