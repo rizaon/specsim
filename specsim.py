@@ -161,12 +161,12 @@ class BasicSE(Speculator):
 
   def getPossibleBackups(self,sim,tid):
     backups = []
+    dislike = [a.mapnode for a in sim.tasks[tid].attempts]
     locatedDN = sim.file.blocks[tid]
     for dn in locatedDN:
       for map in xrange(0,NUMNODE):
-        att = Attempt(dn,map)
-        if self.isAttemptAllowed(sim,tid,att):
-          backups.append(att)
+        if map not in dislike:
+          backups.append(Attempt(dn,map))
     return backups
 
 
@@ -345,16 +345,23 @@ def permuteFailure():
 def placeBlock(queue, blockid):
   TIME.start()
 
-  for i in xrange(0,NUMREPL):
-    tmp = queue
-    queue = []
-    while len(tmp)>0:
-      sim = tmp.pop(0)
-      for j in xrange(0,NUMNODE):
-        if j not in sim.file.blocks[blockid]:
-          psim = sim.clone()
-          psim.file.blocks[blockid][i] = j
-          queue.append(psim)
+  blocks = [[x] for x in xrange(0,NUMNODE)]
+  for rep in xrange(1,NUMREPL):
+    tmp = blocks
+    blocks = []
+    for blk in tmp:
+      for i in xrange(0,NUMNODE):
+        if i not in blk:
+          blocks.append(blk+[i])
+
+  tmp = queue
+  queue = []
+  while len(tmp)>0:
+    sim = tmp.pop(0)
+    for blk in blocks:
+      psim = sim.clone()
+      psim.file.blocks[blockid] = blk
+      queue.append(psim)
 
   TIME.stop()
   TIME.report("Block %d permutation done!" % blockid,queue)
@@ -384,27 +391,21 @@ def reduceBlockPerms(queue):
   TIME.report("Reduction of block permutation done!" ,ret)
   return ret
 
+
 def placeOriginalTask(queue,taskid):
   TIME.start()
 
-  # assign datanode
   tmp = queue
   queue = []
   while len(tmp)>0:
     sim = tmp.pop(0)
-    for j in sim.file.blocks[taskid]:
+    attempts = []
+    for i in sim.file.blocks[taskid]:
+      for j in xrange(0,NUMNODE):
+        attempts.append(Attempt(i,j))
+    for att in attempts:
       psim = sim.clone()
-      psim.addAttempt(taskid,Attempt(j,-1))
-      queue.append(psim)
-
-  # assign mapnode
-  tmp = queue
-  queue = []
-  while len(tmp)>0:
-    sim = tmp.pop(0)
-    for j in xrange(0,NUMNODE):
-      psim = sim.clone()
-      psim.tasks[taskid].attempts[0].mapnode = j
+      psim.addAttempt(taskid,att)
       queue.append(psim)
 
   TIME.stop()
@@ -437,11 +438,11 @@ def reduceTaskPerms(queue):
   TIME.report("Reduction of block permutation done!" ,ret)
   return ret
 
+
 def placeBackupTask(queue,taskid):
   TIME.start()
   nobackup = []
 
-  # assign datanode
   tmp = queue
   queue = []
   while len(tmp)>0:
@@ -449,21 +450,10 @@ def placeBackupTask(queue,taskid):
     if not sim.needBackup(taskid):
       nobackup.append(sim)
     else:
-      for j in sim.file.blocks[taskid]:
+      attempts = SPEC.getPossibleBackups(sim,taskid)
+      for att in attempts:
         psim = sim.clone()
-        psim.addAttempt(taskid,Attempt(j,-1))
-        queue.append(psim)
-
-  # assign mapnode
-  tmp = queue
-  queue = []
-  while len(tmp)>0:
-    sim = tmp.pop(0)
-    tried = [x.mapnode for x in sim.tasks[taskid].attempts]
-    for j in xrange(0,NUMNODE):
-      if j not in tried:
-        psim = sim.clone()
-        psim.tasks[taskid].attempts[0].mapnode = j
+        psim.addAttempt(taskid,att)
         queue.append(psim)
 
   queue = nobackup + queue
@@ -478,25 +468,6 @@ def permuteBackupTask(queue):
     sim.updateProgress()
   return queue
 
-def permuteStage(sim,tid):
-  ret = []
-  if tid < NUMTASK:
-    if sim.needBackup(tid):
-      backups = SPEC.getPossibleBackups(sim,tid)
-      while len(backups) > 0:
-        att = backups.pop(0)
-        psim = sim.clone()
-        psim.addAttempt(tid,att)
-        ret.extend(permuteStage(psim,tid+1))
-    else:
-      ret.extend(permuteStage(sim,tid+1))
-    return ret
-  else:
-    sim.updateProgress()
-    if EnableTaskSymmetry:
-      OPT.reorderTasks(sim)
-    ret.append(sim)
-  return ret  
 
 def main():
   failurequeue = permuteFailure()
