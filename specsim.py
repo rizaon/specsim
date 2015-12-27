@@ -6,7 +6,7 @@ NUMNODE = 6
 NUMRACK = 3
 NUMTASK = 2
 NUMBLOCK = NUMTASK
-NUMSTAGE = 0
+NUMSTAGE = 1
 NUMREPL = 2
 
 EnableStateCollapsing = True
@@ -277,6 +277,12 @@ class Printer(object):
         limp = limp or sim.isSlow(sim.tasks[i].attempts[-1])
     return limp
 
+  def printSim(self,sim):
+    print (sim.badnode,sim.badrack)
+    print sim.file.blocks
+    for t in sim.tasks:
+      print [(x.datanode,x.mapnode) for x in t.attempts]
+
   def printPerms(self,queue):
     uniquePerm = len(queue)
     uniqueSucc = 0
@@ -320,6 +326,7 @@ class Printer(object):
 SPEC = BasicSE()
 BC = Bitcoder()
 OPT = Optimizer()
+PRINT = Printer()
 TIME = TimeReporter()
 
 def permuteFailure():
@@ -371,28 +378,62 @@ def reduceBlockPerms(queue):
       sameperm.count += sim.count
     else:
       ret[id] = sim
+  ret = ret.values()
 
   TIME.stop()
-  TIME.report("Reduction of block permutation done!" ,queue)
-  return ret.values()
+  TIME.report("Reduction of block permutation done!" ,ret)
+  return ret
 
+def placeOriginalTask(queue,taskid):
+  TIME.start()
 
-def permuteOriginal(sim,tid):
-  ret = []
-  if tid < NUMTASK:
-    for dn in sim.file.blocks[tid]:
-      for map in xrange(0,NUMNODE):
-        att = Attempt(dn,map)
-        psim = sim.clone()
-        psim.addAttempt(tid,att)
-        ret.extend(permuteOriginal(psim,tid+1))
-    return ret
-  else:
+  tmp = queue
+  queue = []
+  while len(tmp)>0:
+    sim = tmp.pop(0)
+    for j in sim.file.blocks[taskid]:
+      psim = sim.clone()
+      psim.addAttempt(taskid,Attempt(j,NUMNODE)) # assign datanode
+      queue.append(psim)
+
+  tmp = queue
+  queue = []
+  while len(tmp)>0:
+    sim = tmp.pop(0)
+    for j in xrange(0,NUMNODE):
+      psim = sim.clone()
+      psim.tasks[taskid].attempts[0].mapnode = j # assign mapnode
+      queue.append(psim)
+
+  TIME.stop()
+  TIME.report("Task %d permutation done!" % taskid,queue)
+  return queue
+
+def permuteOriginalTask(queue):
+  for i in xrange(0,NUMTASK):
+    queue = placeOriginalTask(queue,i)
+  for sim in queue:
     sim.updateProgress()
+  return queue
+
+def reduceTaskPerms(queue):
+  TIME.start()
+
+  ret = dict()
+  for sim in queue:
     if EnableTaskSymmetry:
       OPT.reorderTasks(sim)
-    ret.append(sim)
-  return ret  
+    id = BC.getSimBitmap(sim)
+    if id in ret:
+      sameperm = ret[id]
+      sameperm.count += sim.count
+    else:
+      ret[id] = sim
+  ret = ret.values()
+
+  TIME.stop()
+  TIME.report("Reduction of block permutation done!" ,ret)
+  return ret
 
 def permuteStage(sim,tid):
   ret = []
@@ -415,8 +456,6 @@ def permuteStage(sim,tid):
   return ret  
 
 def main():
-  printer = Printer()
-
   failurequeue = permuteFailure()
 
   """ stage -1: permute datablocks  """
@@ -425,33 +464,21 @@ def main():
     dnqueue = reduceBlockPerms(dnqueue)
 
   if NUMSTAGE == 0:
-    printer.printPerms(dnqueue)
-    
+    PRINT.printPerms(dnqueue)
+    exit(0)    
 
   """ stage  0: permute original tasks """
-  if NUMSTAGE > 0:
-    blockperms = dnqueue
-    originalqueue = dict()
-    id = 0
-    while len(blockperms) > 0:
-      sim = blockperms.pop(0)
-      perms = permuteOriginal(sim, 0)
-      while len(perms) > 0:
-        nextsim = perms.pop(0)
-        id = BC.getSimBitmap(nextsim) if EnableStateCollapsing else (id+1)
-        if id in originalqueue:
-          sameperm = originalqueue[id]
-          sameperm.count += nextsim.count
-        else:
-          originalqueue[id] = nextsim
+  originalqueue = permuteOriginalTask(dnqueue)
+  if EnableStateCollapsing:
+    originalqueue = reduceTaskPerms(originalqueue)
 
   if NUMSTAGE == 1:
-    printer.printPerms(originalqueue.values())
-
+    PRINT.printPerms(originalqueue)
+    exit(0)
 
   """ stage  1: run SE """
   if NUMSTAGE > 1:
-    ori = originalqueue.values()
+    ori = originalqueue
     finalStates = dict()
     id = 0
     while (len(ori) > 0):
@@ -467,7 +494,7 @@ def main():
           finalStates[id] = nextsim
 
   if NUMSTAGE == 2:
-    printer.printPerms(finalStates.values())
+    PRINT.printPerms(finalStates.values())
 
 if __name__ == '__main__':
   main()
