@@ -1,20 +1,41 @@
 #!/usr/bin/python
 from abc import ABCMeta, abstractmethod
-import math, copy
+import math, copy, time
 
 NUMNODE = 6
 NUMRACK = 3
 NUMTASK = 2
 NUMBLOCK = NUMTASK
-NUMSTAGE = 1
+NUMSTAGE = 0
 NUMREPL = 2
 
-EnableStateCollapsing = False
-EnableTaskSymmetry = EnableStateCollapsing and False
+EnableStateCollapsing = True
+EnableTaskSymmetry = EnableStateCollapsing and True
 EnableOffRackReplica = False
 
 def getRackID(node):
   return node % NUMRACK
+
+class TimeReporter(object):
+  def __init__(self):
+    self.begin = time.clock()
+    self.end = time.clock()
+
+  def start(self):
+    self.begin = time.clock()
+
+  def stop(self):
+    self.end = time.clock()
+
+  def getElapsed(self):
+    return self.end - self.begin
+
+  def report(self,msg,queue):
+    print msg
+    print "Time elapsed: %f " % self.getElapsed()
+    print "Queue size: %d" % len(queue)
+    print ""
+
 
 class Attempt(object):
   def __init__(self, datanode, mapnode):
@@ -28,7 +49,7 @@ class HdfsFile(object):
   def __init__(self, numblock, numrepl):
     self.numblock = numblock
     self.numrepl = numrepl
-    self.blocks = [[0]*numrepl for i in xrange(0,numblock)]
+    self.blocks = [[-1]*numrepl for i in xrange(0,numblock)]
 
   def clone(self):
     klon = HdfsFile(self.numblock, self.numrepl)
@@ -211,13 +232,12 @@ class Optimizer(object):
 
   def reorderBlocks(self,sim):
     for i in xrange(0,len(sim.file.blocks)):
-      bits = [(x,self.bc.getNodeBitmap(sim,x)) for x in sim.file.blocks[i]]
-      bits = sorted(bits, key=lambda x:x[1])
-      sim.file.blocks[i] = list([a for (a,b) in bits])
+      sim.file.blocks[i] = sorted(sim.file.blocks[i], \
+        key=lambda x:(self.bc.getNodeBitmap(sim,x),x))
 
-    loclist = [(x,self.bc.getBlockBitmap(sim,x)) for x in sim.file.blocks]
-    loclist = sorted(loclist, key=lambda x:x[1])
-    sim.file.blocks = list([a for (a,b) in loclist])
+    sim.file.blocks = sorted(sim.file.blocks, \
+        key=lambda x:(self.bc.getBlockBitmap(sim,x),x))
+
 
   def reorderTasks(self,sim):
     tuples = []
@@ -265,7 +285,7 @@ class Printer(object):
     totalSucc = 0
     totalFail = 0
 
-    for v in queue.values():
+    for v in queue:
       limp = self.isLimplock(v)
       uniqueSucc += not limp
       uniqueFail += limp
@@ -281,7 +301,8 @@ class Printer(object):
     print "Total failure: ", totalFail
     print "Fail ratio: ", totalFail/float(totalPerm) 
     print "====================================="
-    for k,v in sorted(queue.items(), key=lambda x:x[0]):
+    tuples = map(lambda x: (self.bc.getSimBitmap(x),x), queue)
+    for k,v in sorted(tuples, key=lambda x:x[0]):
       print "Hash key: ", k
       if EnableStateCollapsing:
         print "Hash bit: ", self.bc.getFormattedSimBitmap(v)
@@ -299,25 +320,62 @@ class Printer(object):
 SPEC = BasicSE()
 BC = Bitcoder()
 OPT = Optimizer()
+TIME = TimeReporter()
 
-def permuteBlocks(sim,blockid,repl):
-  ret = []
-  if blockid < NUMBLOCK:
-    if len(repl) < NUMREPL:
-      for i in xrange(0,NUMNODE):
-        if not (i in repl):
-          ret.extend(permuteBlocks(sim,blockid,repl + [i]))
-    else:
-      racks = set([getRackID(x) for x in repl])
-      if not EnableOffRackReplica or (len(racks) > 1):
-        psim = sim.clone()
-        psim.setBlocks(blockid,repl)
-        ret.extend(permuteBlocks(psim,blockid+1,[]))
-  else:
+def permuteFailure():
+  TIME.start()
+
+  failurequeue = []
+  for i in xrange(0,NUMNODE):
+    failurequeue.append(SimTopology((i,-1)))
+#  for i in xrange(0,NUMRACK):
+#    failurequeue.append(SimTopology((-1,i)))
+
+  TIME.stop()
+  TIME.report("Failure permutation complete!",failurequeue)
+  return failurequeue
+
+def placeBlock(queue, blockid):
+  TIME.start()
+
+  for i in xrange(0,NUMREPL):
+    tmp = queue
+    queue = []
+    while len(tmp)>0:
+      sim = tmp.pop(0)
+      for j in xrange(0,NUMNODE):
+        if j not in sim.file.blocks[blockid]:
+          psim = sim.clone()
+          psim.file.blocks[blockid][i] = j
+          queue.append(psim)
+
+  TIME.stop()
+  TIME.report("Block %d permutation done!" % blockid,queue)
+  return queue
+
+def permuteBlock(queue):
+  for i in xrange(0,NUMBLOCK):
+    queue = placeBlock(queue,i)
+  return queue
+
+def reduceBlockPerms(queue):
+  TIME.start()
+
+  ret = dict()
+  for sim in queue:
     if EnableTaskSymmetry:
       OPT.reorderBlocks(sim)
-    ret.append(sim)
-  return ret
+    id = BC.getSimBitmap(sim)
+    if id in ret:
+      sameperm = ret[id]
+      sameperm.count += sim.count
+    else:
+      ret[id] = sim
+
+  TIME.stop()
+  TIME.report("Reduction of block permutation done!" ,queue)
+  return ret.values()
+
 
 def permuteOriginal(sim,tid):
   ret = []
@@ -359,27 +417,12 @@ def permuteStage(sim,tid):
 def main():
   printer = Printer()
 
-  failurequeue = []
-  for i in xrange(0,NUMNODE):
-    failurequeue.append(SimTopology((i,-1)))
-#  for i in xrange(0,NUMRACK):
-#    failurequeue.append(SimTopology((-1,i)))
+  failurequeue = permuteFailure()
 
   """ stage -1: permute datablocks  """
-  if NUMSTAGE > -1:
-    dnqueue = dict()
-    id = 0
-    while len(failurequeue) > 0:
-      sim = failurequeue.pop(0)
-      perms = permuteBlocks(sim, 0, [])
-      while len(perms) > 0:
-        nextsim = perms.pop(0)
-        id = BC.getSimBitmap(nextsim) if EnableStateCollapsing else (id+1)
-        if id in dnqueue:
-          sameperm = dnqueue[id]
-          sameperm.count += nextsim.count
-        else:
-          dnqueue[id] = nextsim
+  dnqueue = permuteBlock(failurequeue)
+  if EnableStateCollapsing:
+    dnqueue = reduceBlockPerms(dnqueue)
 
   if NUMSTAGE == 0:
     printer.printPerms(dnqueue)
@@ -387,7 +430,7 @@ def main():
 
   """ stage  0: permute original tasks """
   if NUMSTAGE > 0:
-    blockperms = dnqueue.values()
+    blockperms = dnqueue
     originalqueue = dict()
     id = 0
     while len(blockperms) > 0:
@@ -403,7 +446,7 @@ def main():
           originalqueue[id] = nextsim
 
   if NUMSTAGE == 1:
-    printer.printPerms(originalqueue)
+    printer.printPerms(originalqueue.values())
 
 
   """ stage  1: run SE """
@@ -424,7 +467,7 @@ def main():
           finalStates[id] = nextsim
 
   if NUMSTAGE == 2:
-    printer.printPerms(finalStates)
+    printer.printPerms(finalStates.values())
 
 if __name__ == '__main__':
   main()
