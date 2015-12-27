@@ -6,7 +6,7 @@ NUMNODE = 6
 NUMRACK = 3
 NUMTASK = 2
 NUMBLOCK = NUMTASK
-NUMSTAGE = 1
+NUMSTAGE = 2
 NUMREPL = 2
 
 EnableStateCollapsing = True
@@ -387,22 +387,24 @@ def reduceBlockPerms(queue):
 def placeOriginalTask(queue,taskid):
   TIME.start()
 
+  # assign datanode
   tmp = queue
   queue = []
   while len(tmp)>0:
     sim = tmp.pop(0)
     for j in sim.file.blocks[taskid]:
       psim = sim.clone()
-      psim.addAttempt(taskid,Attempt(j,NUMNODE)) # assign datanode
+      psim.addAttempt(taskid,Attempt(j,-1))
       queue.append(psim)
 
+  # assign mapnode
   tmp = queue
   queue = []
   while len(tmp)>0:
     sim = tmp.pop(0)
     for j in xrange(0,NUMNODE):
       psim = sim.clone()
-      psim.tasks[taskid].attempts[0].mapnode = j # assign mapnode
+      psim.tasks[taskid].attempts[0].mapnode = j
       queue.append(psim)
 
   TIME.stop()
@@ -435,6 +437,47 @@ def reduceTaskPerms(queue):
   TIME.report("Reduction of block permutation done!" ,ret)
   return ret
 
+def placeBackupTask(queue,taskid):
+  TIME.start()
+  nobackup = []
+
+  # assign datanode
+  tmp = queue
+  queue = []
+  while len(tmp)>0:
+    sim = tmp.pop(0)
+    if not sim.needBackup(taskid):
+      nobackup.append(sim)
+    else:
+      for j in sim.file.blocks[taskid]:
+        psim = sim.clone()
+        psim.addAttempt(taskid,Attempt(j,-1))
+        queue.append(psim)
+
+  # assign mapnode
+  tmp = queue
+  queue = []
+  while len(tmp)>0:
+    sim = tmp.pop(0)
+    tried = [x.mapnode for x in sim.tasks[taskid].attempts]
+    for j in xrange(0,NUMNODE):
+      if j not in tried:
+        psim = sim.clone()
+        psim.tasks[taskid].attempts[0].mapnode = j
+        queue.append(psim)
+
+  queue = nobackup + queue
+  TIME.stop()
+  TIME.report("Backup task %d permutation done!" % taskid,queue)
+  return queue
+
+def permuteBackupTask(queue):
+  for i in xrange(0,NUMTASK):
+    queue = placeBackupTask(queue,i)
+  for sim in queue:
+    sim.updateProgress()
+  return queue
+
 def permuteStage(sim,tid):
   ret = []
   if tid < NUMTASK:
@@ -459,26 +502,28 @@ def main():
   failurequeue = permuteFailure()
 
   """ stage -1: permute datablocks  """
-  dnqueue = permuteBlock(failurequeue)
-  if EnableStateCollapsing:
-    dnqueue = reduceBlockPerms(dnqueue)
+  if NUMSTAGE > -1:
+    dnqueue = permuteBlock(failurequeue)
+    if EnableStateCollapsing:
+      dnqueue = reduceBlockPerms(dnqueue)
 
-  if NUMSTAGE == 0:
-    PRINT.printPerms(dnqueue)
-    exit(0)    
+    if NUMSTAGE == 0:
+      PRINT.printPerms(dnqueue)
+      exit(0)    
 
   """ stage  0: permute original tasks """
-  originalqueue = permuteOriginalTask(dnqueue)
-  if EnableStateCollapsing:
-    originalqueue = reduceTaskPerms(originalqueue)
+  if NUMSTAGE > 0:
+    originalqueue = permuteOriginalTask(dnqueue)
+    if EnableStateCollapsing:
+      originalqueue = reduceTaskPerms(originalqueue)
 
-  if NUMSTAGE == 1:
-    PRINT.printPerms(originalqueue)
-    exit(0)
+    if NUMSTAGE == 1:
+      PRINT.printPerms(originalqueue)
+      exit(0)
 
   """ stage  1: run SE """
   if NUMSTAGE > 1:
-    ori = originalqueue
+    """ori = originalqueue
     finalStates = dict()
     id = 0
     while (len(ori) > 0):
@@ -491,10 +536,13 @@ def main():
           sameperm = finalStates[id]
           sameperm.count += nextsim.count
         else:
-          finalStates[id] = nextsim
+          finalStates[id] = nextsim"""
+    finalStates = permuteBackupTask(originalqueue)
+    if EnableStateCollapsing:
+      finalStates = reduceTaskPerms(finalStates)
 
-  if NUMSTAGE == 2:
-    PRINT.printPerms(finalStates.values())
+    if NUMSTAGE == 2:
+      PRINT.printPerms(finalStates)
 
 if __name__ == '__main__':
   main()
