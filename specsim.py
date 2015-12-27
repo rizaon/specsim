@@ -523,20 +523,6 @@ def main():
 
   """ stage  1: run SE """
   if NUMSTAGE > 1:
-    """ori = originalqueue
-    finalStates = dict()
-    id = 0
-    while (len(ori) > 0):
-      sim = ori.pop(0)
-      perms = permuteStage(sim, 0)
-      while len(perms) > 0:
-        nextsim = perms.pop(0)
-        id = BC.getSimBitmap(nextsim) if EnableStateCollapsing else (id+1)
-        if id in finalStates:
-          sameperm = finalStates[id]
-          sameperm.count += nextsim.count
-        else:
-          finalStates[id] = nextsim"""
     finalStates = permuteBackupTask(originalqueue)
     if EnableStateCollapsing:
       finalStates = reduceTaskPerms(finalStates)
