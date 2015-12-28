@@ -9,9 +9,10 @@ NUMBLOCK = NUMTASK
 NUMSTAGE = 2
 NUMREPL = 2
 
-EnableStateCollapsing = True
+EnableStateCollapsing = False
 EnableTaskSymmetry = EnableStateCollapsing and True
 EnableOffRackReplica = False
+PrintPermutations = False
 
 def getRackID(node):
   return node % NUMRACK
@@ -335,8 +336,8 @@ def permuteFailure():
   failurequeue = []
   for i in xrange(0,NUMNODE):
     failurequeue.append(SimTopology((i,-1)))
-#  for i in xrange(0,NUMRACK):
-#    failurequeue.append(SimTopology((-1,i)))
+  for i in xrange(0,NUMRACK):
+    failurequeue.append(SimTopology((-1,i)))
 
   TIME.stop()
   TIME.report("Failure permutation complete!",failurequeue)
@@ -470,6 +471,8 @@ def permuteBackupTask(queue):
 
 
 def main():
+  timer = TimeReporter()
+  timer.start()
   failurequeue = permuteFailure()
 
   """ stage -1: permute datablocks  """
@@ -477,8 +480,10 @@ def main():
     dnqueue = permuteBlock(failurequeue)
     if EnableStateCollapsing:
       dnqueue = reduceBlockPerms(dnqueue)
+    timer.stop()
+    timer.report("Up to block placement",dnqueue)
 
-    if NUMSTAGE == 0:
+    if PrintPermutations and NUMSTAGE == 0:
       PRINT.printPerms(dnqueue)
       exit(0)    
 
@@ -487,8 +492,10 @@ def main():
     originalqueue = permuteOriginalTask(dnqueue)
     if EnableStateCollapsing:
       originalqueue = reduceTaskPerms(originalqueue)
+    timer.stop()
+    timer.report("Up to task placement",originalqueue)
 
-    if NUMSTAGE == 1:
+    if PrintPermutations and NUMSTAGE == 1:
       PRINT.printPerms(originalqueue)
       exit(0)
 
@@ -497,8 +504,10 @@ def main():
     finalStates = permuteBackupTask(originalqueue)
     if EnableStateCollapsing:
       finalStates = reduceTaskPerms(finalStates)
+    timer.stop()
+    timer.report("Up to backup placement",finalStates)
 
-    if NUMSTAGE == 2:
+    if PrintPermutations and NUMSTAGE == 2:
       PRINT.printPerms(finalStates)
 
 if __name__ == '__main__':
