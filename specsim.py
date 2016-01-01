@@ -9,10 +9,10 @@ NUMBLOCK = NUMTASK
 NUMSTAGE = 2
 NUMREPL = 2
 
-EnableStateCollapsing = False
+EnableStateCollapsing = True
 EnableTaskSymmetry = EnableStateCollapsing and True
 EnableOffRackReplica = False
-PrintPermutations = False
+PrintPermutations = True
 
 def getRackID(node):
   return node % NUMRACK
@@ -198,8 +198,9 @@ class Bitcoder(object):
     return state
    
   def getTaskBitmap(self,sim,task):
+    stage = sim.runstage + 1
     return reduce(lambda x,y: x*16 + \
-      self.getAttemptBitmap(sim,y),task.attempts,0)
+      self.getAttemptBitmap(sim,y),task.attempts,0) * 16**(stage-len(task.attempts))
 
   def getTasksBitmap(self,sim):
     stage = sim.runstage + 1
@@ -240,18 +241,21 @@ class Optimizer(object):
         key=lambda x:(self.bc.getBlockBitmap(sim,x),x))
 
 
-  def reorderTasks(self,sim):
+  def reorderTasks(self,sim, ignoreFileBitmap = False):
     tuples = []
     stage = sim.runstage + 1
     for i in xrange(0,len(sim.tasks)):
-      tuple = (sim.tasks[i],sim.file.blocks[i], \
-        self.bc.getBlockBitmap(sim,sim.file.blocks[i]) * (16**stage) +\
-        self.bc.getTaskBitmap(sim,sim.tasks[i]))
+      code = (0 if ignoreFileBitmap \
+        else self.bc.getBlockBitmap(sim,sim.file.blocks[i])) * (16**stage) + \
+          self.bc.getTaskBitmap(sim,sim.tasks[i])
+      tuple = (code, \
+        sim.file.blocks[i], \
+        sim.tasks[i])
       tuples.append(tuple)
-    tuples = sorted(tuples, key = lambda x:x[2])
+    tuples = sorted(tuples, key = lambda x:x[0:2])
     for i in xrange(0,len(sim.tasks)):
-      sim.tasks[i] = tuples[i][0]
       sim.file.blocks[i] = tuples[i][1]
+      sim.tasks[i] = tuples[i][2]
 
 
 class Printer(object):
@@ -308,19 +312,20 @@ class Printer(object):
     print "Total failure: ", totalFail
     print "Fail ratio: ", totalFail/float(totalPerm) 
     print "====================================="
-    tuples = map(lambda x: (self.bc.getSimBitmap(x),x), queue)
-    for k,v in sorted(tuples, key=lambda x:x[0]):
-      print "Hash key: ", k
-      if EnableStateCollapsing:
-        print "Hash bit: ", self.bc.getFormattedSimBitmap(v)
-      print "Total count: ", v.getCount()
-      print "Ratio: ", v.getCount()/float(totalPerm)
-      print "Bad node: ", v.badnode
-      print "Bad rack: ", v.badrack
-      print "Topology: ", self.getTaskTopology(v)
-      print "Datanodes: ", v.file.blocks
-      print "IsLimplock:", self.isLimplock(v)
-      print "====================================="
+    if PrintPermutations:
+      tuples = map(lambda x: ((self.bc.getTasksBitmap(x),self.bc.getFileBitmap(x)),x), queue)
+      for k,v in sorted(tuples, key=lambda x:x[0]):
+        print "Hash key: ", k
+        if EnableStateCollapsing:
+          print "Hash bit: ", self.bc.getFormattedSimBitmap(v)
+        print "Total count: ", v.getCount()
+        print "Ratio: ", v.getCount()/float(totalPerm)
+        print "Bad node: ", v.badnode
+        print "Bad rack: ", v.badrack
+        print "Topology: ", self.getTaskTopology(v)
+        print "Datanodes: ", v.file.blocks
+        print "IsLimplock:", self.isLimplock(v)
+        print "====================================="
 
 
 
@@ -470,45 +475,73 @@ def permuteBackupTask(queue):
   return queue
 
 
+def reduceByTasksBitmap(queue):
+  TIME.start()
+
+  ret = dict()
+  for sim in queue:
+    if EnableTaskSymmetry:
+      OPT.reorderTasks(sim, True)
+    id = BC.getTasksBitmap(sim)
+    if id in ret:
+      sameperm = ret[id]
+      if BC.getFileBitmap(sameperm) < BC.getFileBitmap(sim):
+        sim.count += sameperm.count
+        ret[id] = sim
+      else:
+        sameperm.count += sim.count
+    else:
+      ret[id] = sim
+  ret = ret.values()
+
+  TIME.stop()
+  TIME.report("Reduction by task bitmap done!" ,ret)
+  return ret
+
+
 def main():
   timer = TimeReporter()
   timer.start()
-  failurequeue = permuteFailure()
+  simqueue = permuteFailure()
 
   """ stage -1: permute datablocks  """
   if NUMSTAGE > -1:
-    dnqueue = permuteBlock(failurequeue)
+    simqueue = permuteBlock(simqueue)
     if EnableStateCollapsing:
-      dnqueue = reduceBlockPerms(dnqueue)
+      simqueue = reduceBlockPerms(simqueue)
     timer.stop()
-    timer.report("Up to block placement",dnqueue)
+    timer.report("Up to block placement",simqueue)
 
-    if PrintPermutations and NUMSTAGE == 0:
-      PRINT.printPerms(dnqueue)
+    if NUMSTAGE == 0:
+      PRINT.printPerms(simqueue)
       exit(0)    
 
   """ stage  0: permute original tasks """
   if NUMSTAGE > 0:
-    originalqueue = permuteOriginalTask(dnqueue)
+    simqueue = permuteOriginalTask(simqueue)
     if EnableStateCollapsing:
-      originalqueue = reduceTaskPerms(originalqueue)
+      simqueue = reduceTaskPerms(simqueue)
     timer.stop()
-    timer.report("Up to task placement",originalqueue)
+    timer.report("Up to task placement",simqueue)
 
-    if PrintPermutations and NUMSTAGE == 1:
-      PRINT.printPerms(originalqueue)
+    if NUMSTAGE == 1:
+      PRINT.printPerms(simqueue)
       exit(0)
 
   """ stage  1: run SE """
-  if NUMSTAGE > 1:
-    finalStates = permuteBackupTask(originalqueue)
+  numbackup = 1
+  if numbackup < NUMSTAGE:
+    simqueue = permuteBackupTask(simqueue)
     if EnableStateCollapsing:
-      finalStates = reduceTaskPerms(finalStates)
+      simqueue = reduceTaskPerms(simqueue)
     timer.stop()
-    timer.report("Up to backup placement",finalStates)
+    timer.report("Up to %dth backup placement" % numbackup,simqueue)
+    numbackup += 1
 
-    if PrintPermutations and NUMSTAGE == 2:
-      PRINT.printPerms(finalStates)
+
+  if EnableStateCollapsing:
+    simqueue = reduceByTasksBitmap(simqueue)
+  PRINT.printPerms(simqueue)
 
 if __name__ == '__main__':
   main()
