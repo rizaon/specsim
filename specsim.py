@@ -1,5 +1,6 @@
 #!/usr/bin/python
 from abc import ABCMeta, abstractmethod
+from enum import Enum
 import math, copy, time
 
 NUMNODE = 6
@@ -258,9 +259,83 @@ class Optimizer(object):
       sim.tasks[i] = tuples[i][2]
 
 
+class PermType(Enum):
+  NORMAL = 0
+  OB_DD = 1
+  OB_DW = 2
+  OB_WD = 3
+  OB_WW = 4
+  FS_DD = 5
+  FS_DW = 6
+  FS_WW = 7
+  UNK = 8
+
+class PermTypeChecker(object):
+  def __init__(self):
+    self.bc = Bitcoder()
+
+  def getLimpTaskIDs(self,sim):
+    limp = []
+    if sim.runstage >= 0:
+      for i in xrange(0,NUMTASK):
+        if sim.isSlow(sim.tasks[i].attempts[-1]):
+          limp.append(i)
+    return limp
+
+  def hasBadDatasource(self,topo,att):
+    bdn = (att.datanode == topo.badnode) and (topo.badnode <> -1)
+    bdnr = (getRackID(att.datanode) == topo.badrack) \
+      and (topo.badrack <> -1)
+    return bdn or bdnr
+
+  def hasBadWorker(self,topo,att):
+    bmp = (att.mapnode == topo.badnode) and (topo.badnode <> -1)
+    bmpr = (getRackID(att.mapnode) == topo.badrack) \
+      and (sim.badrack <> -1)
+    return bmp or bmpr
+
+  def checkPermType(self,topo):
+    """ This check assume there are only 2 task """
+    if len(topo.tasks)<>2:
+      raise Exception("Topology has less/more than 2 tasks")
+    tids = self.getLimpTaskIDs(topo)
+    if not tids:
+      return PermType.NORMAL
+    elif len(tids) == len(topo.tasks):
+      # FS type
+      verd = [self.hasBadDatasource(topo,topo.tasks[x].attempts[0]) for x in tids]
+      verd = sorted(verd)
+      print verd
+      if verd[0]:
+        if verd[1]:
+          return PermType.FS_DD
+      else:
+        if verd[1]:
+          return PermType.FS_DW
+        else:
+          return PermType.FS_WW
+    else:
+      # OB type
+      verd = [self.hasBadDatasource(topo,x) for x in topo.tasks[tids[0]].attempts]
+      if verd[0]:
+        if verd[1]:
+          return PermType.OB_DD
+        else:
+          return PermType.OB_DW
+      else:
+        if verd[1]:
+          return PermType.OB_WD
+        else:
+          return PermType.OB_WW
+
+    # something wrong if returning here
+    return PermType.UNK
+
+
 class Printer(object):
   def __init__(self):
     self.bc = Bitcoder()
+    self.ck = PermTypeChecker()
 
   def getTaskTopology(self,sim):
     topo = []
@@ -325,8 +400,8 @@ class Printer(object):
         print "Topology: ", self.getTaskTopology(v)
         print "Datanodes: ", v.file.blocks
         print "IsLimplock:", self.isLimplock(v)
+        print "PermType:", self.ck.checkPermType(v)
         print "====================================="
-
 
 
 SPEC = BasicSE()
