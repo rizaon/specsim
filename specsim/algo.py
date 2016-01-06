@@ -38,6 +38,31 @@ class BasicSE(Speculator):
     return backups
 
 
+class FAReadSE(Speculator):
+  def __init__(self,conf):
+    self.conf = conf
+
+  def isAttemptAllowed(self,sim,tid,att):
+    dislike = [a.mapnode for a in sim.tasks[tid].attempts]
+    read = [a.datanode for a in sim.tasks[tid].attempts]
+    locatedDN = set(sim.file.blocks[tid])
+
+    differentWorknode = not (att.mapnode in dislike)
+    canPickDatanode = (att.datanode in locatedDN)
+    differentDN = (att.datanode not in read)
+    return differentWorknode and canPickDatanode and differentDN
+
+  def getPossibleBackups(self,sim,tid):
+    backups = []
+    locatedDN = sim.file.blocks[tid]
+    for dn in locatedDN:
+      for map in xrange(0,self.conf.NUMNODE):
+        att = Attempt(dn,map)
+        if self.isAttemptAllowed(sim,tid,att):
+          backups.append(att)
+    return backups
+
+
 class Optimizer(object):
   def __init__(self,conf):
     self.bc = Bitcoder(conf)
