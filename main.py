@@ -5,7 +5,11 @@ from specsim.conf import Conf
 from specsim.mapred import *
 from specsim.util import *
 from specsim.algo import *
+import logging
 
+
+logging.basicConfig(filename="specsim.log",\
+  filemode="w",level=logging.INFO)
 
 CONF = Conf()
 #CONF.NUMSTAGE = 4

@@ -1,7 +1,8 @@
 
 
 from enum import Enum
-import time
+import time, logging
+
 
 class TimeReporter(object):
   def __init__(self):
@@ -18,10 +19,8 @@ class TimeReporter(object):
     return self.end - self.begin
 
   def report(self,msg,queue):
-    print msg
-    print "Time elapsed: %f " % self.getElapsed()
-    print "Queue size: %d" % len(queue)
-    print ""
+    logging.info(msg+"\nTime elapsed: %f\nQueue size: %d\n",\
+      self.getElapsed(), len(queue))
 
 
 class Bitcoder(object):
