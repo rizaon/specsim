@@ -200,6 +200,8 @@ class Printer(object):
     totalPerm = 0
     totalSucc = 0
     totalFail = 0
+    succprob = .0
+    failprob = .0
 
     for v in queue:
       limp = self.isLimplock(v)
@@ -208,6 +210,8 @@ class Printer(object):
       totalPerm += v.getCount()
       totalSucc += v.getCount() if not limp else 0
       totalFail += v.getCount() if limp else 0
+      succprob += v.prob if not limp else 0
+      failprob += v.prob if limp else 0
 
     print "Unique permutation: ", uniquePerm
     print "Unique success: ", uniqueSucc
@@ -215,7 +219,9 @@ class Printer(object):
     print "Total permutation: ", totalPerm
     print "Total success: ", totalSucc
     print "Total failure: ", totalFail
-    print "Fail ratio: ", totalFail/float(totalPerm)
+    print "Coverage: ", succprob+failprob
+    print "Succ prob: ", succprob
+    print "Fail prob: ", failprob
     print "====================================="
     if self.conf.PrintPermutations:
       tuples = map(lambda x: ((self.bc.getTasksBitmap(x),self.bc.getFileBitmap(x)),x), queue)
@@ -224,7 +230,7 @@ class Printer(object):
         if self.conf.EnableStateCollapsing:
           print "Hash bit: ", self.bc.getFormattedSimBitmap(v)
         print "Total count: ", v.getCount()
-        print "Ratio: ", v.getCount()/float(totalPerm)
+        print "Probability: ", v.prob
         print "Bad node: ", v.badnode
         print "Bad rack: ", v.badrack
         print "Topology: ", self.getTaskTopology(v)

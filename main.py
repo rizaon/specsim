@@ -8,6 +8,9 @@ from specsim.algo import *
 
 
 CONF = Conf()
+#CONF.NUMSTAGE = 4
+CONF.PrintPermutations = False
+
 SPEC = BasicSE(CONF)
 BC = Bitcoder(CONF)
 OPT = Optimizer(CONF)
@@ -19,10 +22,15 @@ def permuteFailure():
   TIME.start()
 
   failurequeue = []
+  totalfailure = CONF.NUMNODE+CONF.NUMRACK
   for i in xrange(0,CONF.NUMNODE):
-    failurequeue.append(SimTopology(CONF,(i,-1)))
+    sim = SimTopology(CONF,(i,-1))
+    sim.prob /= totalfailure
+    failurequeue.append(sim)
   for i in xrange(0,CONF.NUMRACK):
-    failurequeue.append(SimTopology(CONF,(-1,i)))
+    sim = SimTopology(CONF,(-1,i))
+    sim.prob /= totalfailure
+    failurequeue.append(sim)
 
   TIME.stop()
   TIME.report("Failure permutation complete!",failurequeue)
@@ -47,6 +55,7 @@ def placeBlock(queue, blockid):
     for blk in blocks:
       psim = sim.clone()
       psim.file.blocks[blockid] = blk
+      psim.prob /= len(blocks)
       queue.append(psim)
 
   TIME.stop()
@@ -69,6 +78,7 @@ def reduceBlockPerms(queue):
     if id in ret:
       sameperm = ret[id]
       sameperm.count += sim.count
+      sameperm.prob += sim.prob
     else:
       ret[id] = sim
   ret = ret.values()
@@ -92,6 +102,7 @@ def placeOriginalTask(queue,taskid):
     for att in attempts:
       psim = sim.clone()
       psim.addAttempt(taskid,att)
+      psim.prob /= len(attempts)
       queue.append(psim)
 
   TIME.stop()
@@ -116,6 +127,7 @@ def reduceTaskPerms(queue):
     if id in ret:
       sameperm = ret[id]
       sameperm.count += sim.count
+      sameperm.prob += sim.prob
     else:
       ret[id] = sim
   ret = ret.values()
@@ -140,6 +152,7 @@ def placeBackupTask(queue,taskid):
       for att in attempts:
         psim = sim.clone()
         psim.addAttempt(taskid,att)
+        psim.prob /= len(attempts)
         queue.append(psim)
 
   queue = nobackup + queue
@@ -167,9 +180,11 @@ def reduceByTasksBitmap(queue):
       sameperm = ret[id]
       if BC.getFileBitmap(sameperm) < BC.getFileBitmap(sim):
         sim.count += sameperm.count
+        sim.prob += sameperm.prob
         ret[id] = sim
       else:
         sameperm.count += sim.count
+        sameperm.prob += sim.prob
     else:
       ret[id] = sim
   ret = ret.values()
@@ -210,7 +225,7 @@ def main():
 
   """ stage  1: run SE """
   numbackup = 1
-  if numbackup < CONF.NUMSTAGE:
+  while numbackup < CONF.NUMSTAGE:
     simqueue = permuteBackupTask(simqueue)
     if CONF.EnableStateCollapsing:
       simqueue = reduceTaskPerms(simqueue)

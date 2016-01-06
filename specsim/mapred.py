@@ -44,6 +44,7 @@ class SimTopology(object):
     self.jobprogress = .0
     self.currentstate = 0
     self.count = 1
+    self.prob = 1.0
 
     self.file = HdfsFile(self.conf.NUMBLOCK, self.conf.NUMREPL)
 
@@ -64,6 +65,7 @@ class SimTopology(object):
     klon.jobprogress = self.jobprogress
     klon.currentstate = self.currentstate
     klon.count = self.count
+    klon.prob = self.prob
 
     klon.file = self.file.clone()
     klon.tasks = [task.clone() for task in self.tasks]
