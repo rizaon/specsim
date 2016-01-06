@@ -3,20 +3,23 @@ from abc import ABCMeta, abstractmethod
 from enum import Enum
 import math, copy, time
 
-NUMNODE = 6
-NUMRACK = 3
-NUMTASK = 2
-NUMBLOCK = NUMTASK
-NUMSTAGE = 2
-NUMREPL = 2
 
-EnableStateCollapsing = True
-EnableTaskSymmetry = EnableStateCollapsing and True
-EnableOffRackReplica = False
-PrintPermutations = True
+class Conf(object):
+  def __init__(self):
+    self.NUMNODE = 6
+    self.NUMRACK = 3
+    self.NUMTASK = 2
+    self.NUMBLOCK = self.NUMTASK
+    self.NUMSTAGE = 2
+    self.NUMREPL = 2
 
-def getRackID(node):
-  return node % NUMRACK
+    self.EnableStateCollapsing = True
+    self.EnableTaskSymmetry = self.EnableStateCollapsing and True
+    self.EnableOffRackReplica = False
+    self.PrintPermutations = True
+
+  def getRackID(self,node):
+    return node % self.NUMRACK
 
 class TimeReporter(object):
   def __init__(self):
@@ -75,16 +78,17 @@ class Task(object):
     return ctask
 
 class SimTopology(object):
-  def __init__(self, failure):
+  def __init__(self, conf, failure):
+    self.conf = conf
     self.runstage = -1
     self.jobprogress = .0
     self.currentstate = 0
     self.count = 1
 
-    self.file = HdfsFile(NUMBLOCK, NUMREPL)
+    self.file = HdfsFile(self.conf.NUMBLOCK, self.conf.NUMREPL)
 
     self.tasks = []
-    for i in xrange(0,NUMTASK):
+    for i in xrange(0,self.conf.NUMTASK):
       self.tasks.append(Task())
 
     self.badnode = failure[0]
@@ -95,7 +99,7 @@ class SimTopology(object):
     task.addAttempt(att)
 
   def clone(self):
-    klon = SimTopology((self.badnode,self.badrack))
+    klon = SimTopology(self.conf,(self.badnode,self.badrack))
     klon.runstage = self.runstage
     klon.jobprogress = self.jobprogress
     klon.currentstate = self.currentstate
@@ -123,9 +127,9 @@ class SimTopology(object):
   def isSlow(self,att):
     bdn = (att.datanode == self.badnode) and (self.badnode <> -1)
     bmp = (att.mapnode == self.badnode) and (self.badnode <> -1)
-    bdnr = (getRackID(att.datanode) == self.badrack) \
+    bdnr = (self.conf.getRackID(att.datanode) == self.badrack) \
       and (self.badrack <> -1)
-    bmpr = (getRackID(att.mapnode) == self.badrack) \
+    bmpr = (self.conf.getRackID(att.mapnode) == self.badrack) \
       and (self.badrack <> -1)
     return ((not bdn and bmp) or (bdn and not bmp)) or \
       ((not bdnr and bmpr) or (bdnr and not bmpr))
@@ -148,6 +152,9 @@ class Speculator:
   def getPossibleBackups(self,sim,tid): pass
 
 class BasicSE(Speculator):
+  def __init__(self,conf):
+    self.conf = conf
+
   def isAttemptAllowed(self,sim,tid,att):
     dislike = [a.mapnode for a in sim.tasks[tid].attempts]
     locatedDN = set(sim.file.blocks[tid])
@@ -166,21 +173,24 @@ class BasicSE(Speculator):
     dislike = [a.mapnode for a in sim.tasks[tid].attempts]
     locatedDN = sim.file.blocks[tid]
     for dn in locatedDN:
-      for map in xrange(0,NUMNODE):
+      for map in xrange(0,self.conf.NUMNODE):
         if map not in dislike:
           backups.append(Attempt(dn,map))
     return backups
 
 
 class Bitcoder(object):
+  def __init__(self,conf):
+    self.conf = conf
+
   def getNodeBitmap(self,sim,node):
-    return (node == sim.badnode)*2 + (getRackID(node) == sim.badrack)
+    return (node == sim.badnode)*2 + (self.conf.getRackID(node) == sim.badrack)
 
   def getBlockBitmap(self,sim,repl):
     return reduce(lambda x,y:x*4+self.getNodeBitmap(sim,y), repl , 0)
 
   def getFileBitmap(self,sim):
-    blockbit = reduce(lambda x,y:x*(4**NUMREPL)+self.getBlockBitmap(sim,y), \
+    blockbit = reduce(lambda x,y:x*(4**self.conf.NUMREPL)+self.getBlockBitmap(sim,y), \
       sim.file.blocks, 0)
     return blockbit
 
@@ -188,9 +198,9 @@ class Bitcoder(object):
     state = 0
     bdn = (att.datanode == sim.badnode) and (sim.badnode <> -1)
     bmp = (att.mapnode == sim.badnode) and (sim.badnode <> -1)
-    bdnr = (getRackID(att.datanode) == sim.badrack) \
+    bdnr = (self.conf.getRackID(att.datanode) == sim.badrack) \
       and (sim.badrack <> -1)
-    bmpr = (getRackID(att.mapnode) == sim.badrack) \
+    bmpr = (self.conf.getRackID(att.mapnode) == sim.badrack) \
       and (sim.badrack <> -1)
     state = state * 2 + bdn
     state = state * 2 + bmp
@@ -216,13 +226,15 @@ class Bitcoder(object):
   def getFormattedSimBitmap(self,sim):
     taskBitLength = (sim.runstage+1)*4
     outstr = ""
+    NUMBLOCK = self.conf.NUMBLOCK
+    NUMREPL = self.conf.NUMREPL
 
-    dnbit = ("{0:0" + str(2*NUMBLOCK*NUMREPL) + "b}").format(BC.getFileBitmap(sim))
+    dnbit = ("{0:0" + str(2*NUMBLOCK*NUMREPL) + "b}").format(self.getFileBitmap(sim))
     outstr += ",".join([dnbit[i:i+2*NUMREPL] for i in xrange(0,len(dnbit),2*NUMREPL)])
 
     taskBits = []
     for task in sim.tasks:
-      st = ("{0:0" + str(taskBitLength) + "b}").format(BC.getTaskBitmap(sim,task))
+      st = ("{0:0" + str(taskBitLength) + "b}").format(self.getTaskBitmap(sim,task))
       taskbit = ",".join([st[i:i+4] for i in xrange(0,len(st),4)])
       taskBits.append(taskbit)
     outstr += "-" + "|".join(taskBits)
@@ -230,8 +242,9 @@ class Bitcoder(object):
 
 
 class Optimizer(object):
-  def __init__(self):
-    self.bc = Bitcoder()
+  def __init__(self,conf):
+    self.bc = Bitcoder(conf)
+    self.conf = conf
 
   def reorderBlocks(self,sim):
     for i in xrange(0,len(sim.file.blocks)):
@@ -271,26 +284,27 @@ class PermType(Enum):
   UNK = 8
 
 class PermTypeChecker(object):
-  def __init__(self):
-    self.bc = Bitcoder()
+  def __init__(self,conf):
+    self.bc = Bitcoder(conf)
+    self.conf = conf
 
   def getLimpTaskIDs(self,sim):
     limp = []
     if sim.runstage >= 0:
-      for i in xrange(0,NUMTASK):
+      for i in xrange(0,self.conf.NUMTASK):
         if sim.isSlow(sim.tasks[i].attempts[-1]):
           limp.append(i)
     return limp
 
   def hasBadDatasource(self,topo,att):
     bdn = (att.datanode == topo.badnode) and (topo.badnode <> -1)
-    bdnr = (getRackID(att.datanode) == topo.badrack) \
+    bdnr = (self.conf.getRackID(att.datanode) == topo.badrack) \
       and (topo.badrack <> -1)
     return bdn or bdnr
 
   def hasBadWorker(self,topo,att):
     bmp = (att.mapnode == topo.badnode) and (topo.badnode <> -1)
-    bmpr = (getRackID(att.mapnode) == topo.badrack) \
+    bmpr = (self.conf.getRackID(att.mapnode) == topo.badrack) \
       and (sim.badrack <> -1)
     return bmp or bmpr
 
@@ -333,9 +347,10 @@ class PermTypeChecker(object):
 
 
 class Printer(object):
-  def __init__(self):
-    self.bc = Bitcoder()
-    self.ck = PermTypeChecker()
+  def __init__(self, conf):
+    self.bc = Bitcoder(conf)
+    self.ck = PermTypeChecker(conf)
+    self.conf = conf
 
   def getTaskTopology(self,sim):
     topo = []
@@ -353,7 +368,7 @@ class Printer(object):
   def isLimplock(self,sim):
     limp = False
     if sim.runstage >= 0:
-      for i in xrange(0,NUMTASK):
+      for i in xrange(0,self.conf.NUMTASK):
         limp = limp or sim.isSlow(sim.tasks[i].attempts[-1])
     return limp
 
@@ -387,11 +402,11 @@ class Printer(object):
     print "Total failure: ", totalFail
     print "Fail ratio: ", totalFail/float(totalPerm) 
     print "====================================="
-    if PrintPermutations:
+    if self.conf.PrintPermutations:
       tuples = map(lambda x: ((self.bc.getTasksBitmap(x),self.bc.getFileBitmap(x)),x), queue)
       for k,v in sorted(tuples, key=lambda x:x[0]):
         print "Hash key: ", k
-        if EnableStateCollapsing:
+        if self.conf.EnableStateCollapsing:
           print "Hash bit: ", self.bc.getFormattedSimBitmap(v)
         print "Total count: ", v.getCount()
         print "Ratio: ", v.getCount()/float(totalPerm)
@@ -404,20 +419,21 @@ class Printer(object):
         print "====================================="
 
 
-SPEC = BasicSE()
-BC = Bitcoder()
-OPT = Optimizer()
-PRINT = Printer()
+CONF = Conf()
+SPEC = BasicSE(CONF)
+BC = Bitcoder(CONF)
+OPT = Optimizer(CONF)
+PRINT = Printer(CONF)
 TIME = TimeReporter()
 
 def permuteFailure():
   TIME.start()
 
   failurequeue = []
-  for i in xrange(0,NUMNODE):
-    failurequeue.append(SimTopology((i,-1)))
-  for i in xrange(0,NUMRACK):
-    failurequeue.append(SimTopology((-1,i)))
+  for i in xrange(0,CONF.NUMNODE):
+    failurequeue.append(SimTopology(CONF,(i,-1)))
+  for i in xrange(0,CONF.NUMRACK):
+    failurequeue.append(SimTopology(CONF,(-1,i)))
 
   TIME.stop()
   TIME.report("Failure permutation complete!",failurequeue)
@@ -426,12 +442,12 @@ def permuteFailure():
 def placeBlock(queue, blockid):
   TIME.start()
 
-  blocks = [[x] for x in xrange(0,NUMNODE)]
-  for rep in xrange(1,NUMREPL):
+  blocks = [[x] for x in xrange(0,CONF.NUMNODE)]
+  for rep in xrange(1,CONF.NUMREPL):
     tmp = blocks
     blocks = []
     for blk in tmp:
-      for i in xrange(0,NUMNODE):
+      for i in xrange(0,CONF.NUMNODE):
         if i not in blk:
           blocks.append(blk+[i])
 
@@ -449,7 +465,7 @@ def placeBlock(queue, blockid):
   return queue
 
 def permuteBlock(queue):
-  for i in xrange(0,NUMBLOCK):
+  for i in xrange(0,CONF.NUMBLOCK):
     queue = placeBlock(queue,i)
   return queue
 
@@ -458,7 +474,7 @@ def reduceBlockPerms(queue):
 
   ret = dict()
   for sim in queue:
-    if EnableTaskSymmetry:
+    if CONF.EnableTaskSymmetry:
       OPT.reorderBlocks(sim)
     id = BC.getSimBitmap(sim)
     if id in ret:
@@ -482,7 +498,7 @@ def placeOriginalTask(queue,taskid):
     sim = tmp.pop(0)
     attempts = []
     for i in sim.file.blocks[taskid]:
-      for j in xrange(0,NUMNODE):
+      for j in xrange(0,CONF.NUMNODE):
         attempts.append(Attempt(i,j))
     for att in attempts:
       psim = sim.clone()
@@ -494,7 +510,7 @@ def placeOriginalTask(queue,taskid):
   return queue
 
 def permuteOriginalTask(queue):
-  for i in xrange(0,NUMTASK):
+  for i in xrange(0,CONF.NUMTASK):
     queue = placeOriginalTask(queue,i)
   for sim in queue:
     sim.updateProgress()
@@ -505,7 +521,7 @@ def reduceTaskPerms(queue):
 
   ret = dict()
   for sim in queue:
-    if EnableTaskSymmetry:
+    if CONF.EnableTaskSymmetry:
       OPT.reorderTasks(sim)
     id = BC.getSimBitmap(sim)
     if id in ret:
@@ -543,7 +559,7 @@ def placeBackupTask(queue,taskid):
   return queue
 
 def permuteBackupTask(queue):
-  for i in xrange(0,NUMTASK):
+  for i in xrange(0,CONF.NUMTASK):
     queue = placeBackupTask(queue,i)
   for sim in queue:
     sim.updateProgress()
@@ -555,7 +571,7 @@ def reduceByTasksBitmap(queue):
 
   ret = dict()
   for sim in queue:
-    if EnableTaskSymmetry:
+    if CONF.EnableTaskSymmetry:
       OPT.reorderTasks(sim, True)
     id = BC.getTasksBitmap(sim)
     if id in ret:
@@ -580,41 +596,41 @@ def main():
   simqueue = permuteFailure()
 
   """ stage -1: permute datablocks  """
-  if NUMSTAGE > -1:
+  if CONF.NUMSTAGE > -1:
     simqueue = permuteBlock(simqueue)
-    if EnableStateCollapsing:
+    if CONF.EnableStateCollapsing:
       simqueue = reduceBlockPerms(simqueue)
     timer.stop()
     timer.report("Up to block placement",simqueue)
 
-    if NUMSTAGE == 0:
+    if CONF.NUMSTAGE == 0:
       PRINT.printPerms(simqueue)
       exit(0)    
 
   """ stage  0: permute original tasks """
-  if NUMSTAGE > 0:
+  if CONF.NUMSTAGE > 0:
     simqueue = permuteOriginalTask(simqueue)
-    if EnableStateCollapsing:
+    if CONF.EnableStateCollapsing:
       simqueue = reduceTaskPerms(simqueue)
     timer.stop()
     timer.report("Up to task placement",simqueue)
 
-    if NUMSTAGE == 1:
+    if CONF.NUMSTAGE == 1:
       PRINT.printPerms(simqueue)
       exit(0)
 
   """ stage  1: run SE """
   numbackup = 1
-  if numbackup < NUMSTAGE:
+  if numbackup < CONF.NUMSTAGE:
     simqueue = permuteBackupTask(simqueue)
-    if EnableStateCollapsing:
+    if CONF.EnableStateCollapsing:
       simqueue = reduceTaskPerms(simqueue)
     timer.stop()
     timer.report("Up to %dth backup placement" % numbackup,simqueue)
     numbackup += 1
 
 
-  if EnableStateCollapsing:
+  if CONF.EnableStateCollapsing:
     simqueue = reduceByTasksBitmap(simqueue)
   PRINT.printPerms(simqueue)
 
