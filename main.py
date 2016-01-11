@@ -12,10 +12,13 @@ logging.basicConfig(filename="specsim.log",\
   filemode="w",level=logging.INFO)
 
 CONF = Conf()
-#CONF.NUMSTAGE = 4
-CONF.PrintPermutations = False
+CONF.NUMSTAGE = 3
+CONF.PrintPermutations = True
 
-SPEC = BasicSE(CONF)
+#SPEC = BasicSE(CONF)
+#SPEC = FAReadSE(CONF)
+SPEC = PathSE(CONF)
+SPEC.HARDPREF = True
 BC = Bitcoder(CONF)
 OPT = Optimizer(CONF)
 PRINT = Printer(CONF)

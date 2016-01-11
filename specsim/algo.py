@@ -63,6 +63,57 @@ class FAReadSE(Speculator):
     return backups
 
 
+class PathSE(Speculator):
+  def __init__(self,conf):
+    self.conf = conf
+    self.HARDPREF = False
+
+  def toPointDict(self,lst):
+    d = {}
+    for a in lst:
+      if a not in d:
+        d[a] = 1
+      else:
+        d[a] += 1
+    return d
+
+  def getNegPref(self,att,triedDN,triedMR,triedDR):
+    mRack = self.conf.getRackID(att.mapnode)
+    dRack = self.conf.getRackID(att.datanode)
+
+    sameDN = triedDN.get(att.datanode,0)
+    sameMR = triedMR.get(mRack,0)
+    sameDR = triedDR.get(dRack,0)
+
+    pref = 0
+    pref = pref*10 + sameDN
+    pref = pref*10 + sameMR
+    pref = pref*10 + sameDR
+    return pref
+
+  def getPossibleBackups(self,sim,tid):
+    atts = sim.tasks[tid].attempts
+    triedMN = [a.mapnode for a in atts]
+    triedDN = self.toPointDict([a.datanode for a in atts])
+    triedMR = self.toPointDict([self.conf.getRackID(a.mapnode) for a in atts])
+    triedDR = self.toPointDict([self.conf.getRackID(a.datanode) for a in atts])
+
+    backups = []
+    locatedDN = sim.file.blocks[tid]
+    for dn in locatedDN:
+      for map in xrange(0,self.conf.NUMNODE):
+        if map not in triedMN:
+          att = Attempt(dn,map)
+          pref =  self.getNegPref(att,triedDN,triedMR,triedDR)
+          backups.append((pref,att))
+    backups = sorted(backups)
+    if self.HARDPREF:
+      lowest = backups[0][0]
+      lowpref = lambda (x,y): x <= lowest
+      backups = filter(lowpref,backups)
+    return [y for (x,y) in backups]
+
+
 class Optimizer(object):
   def __init__(self,conf):
     self.bc = Bitcoder(conf)
