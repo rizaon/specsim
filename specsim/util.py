@@ -144,7 +144,9 @@ class PermTypeChecker(object):
           return PermType.FS_WW
     else:
       # OB type
-      verd = [self.hasBadDatasource(topo,x) for x in topo.tasks[tids[0]].attempts[2:]]
+      verd = topo.tasks[tids[0]].attempts
+      verd = [self.hasBadDatasource(topo,x) for x in verd[len(verd)-2:]]
+      print verd
       if verd[0]:
         if verd[1]:
           return PermType.OB_DD
