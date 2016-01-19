@@ -77,16 +77,18 @@ class PathSE(Speculator):
         d[a] += 1
     return d
 
-  def getNegPref(self,att,triedDN,triedMR,triedDR):
+  def getNegPref(self,att,triedNM,triedMR,triedDR):
     mRack = self.conf.getRackID(att.mapnode)
     dRack = self.conf.getRackID(att.datanode)
 
-    sameDN = triedDN.get(att.datanode,0)
-    sameMR = triedMR.get(mRack,0)
-    sameDR = triedDR.get(dRack,0)
+    retryDN = triedNM.get(att.datanode,0)
+    retryMN = triedNM.get(att.mapnode,0)
+    sameMR  = triedMR.get(mRack,0)
+    sameDR  = triedDR.get(dRack,0)
 
     pref = 0
-    pref = pref*10 + sameDN
+    pref = pref*10 + retryMN
+    pref = pref*10 + retryDN
     pref = pref*10 + sameMR
     pref = pref*10 + sameDR
     return pref
@@ -94,7 +96,7 @@ class PathSE(Speculator):
   def getPossibleBackups(self,sim,tid):
     atts = sim.tasks[tid].attempts
     triedMN = [a.mapnode for a in atts]
-    triedDN = self.toPointDict([a.datanode for a in atts])
+    triedDN = self.toPointDict([a.datanode for a in atts] + triedMN)
     triedMR = self.toPointDict([self.conf.getRackID(a.mapnode) for a in atts])
     triedDR = self.toPointDict([self.conf.getRackID(a.datanode) for a in atts])
 

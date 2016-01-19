@@ -131,7 +131,7 @@ class PermTypeChecker(object):
       return PermType.NORMAL
     elif len(tids) == len(topo.tasks):
       # FS type
-      verd = [self.hasBadDatasource(topo,topo.tasks[x].attempts[0]) for x in tids]
+      verd = [self.hasBadDatasource(topo,topo.tasks[x].attempts[-1]) for x in tids]
       verd = sorted(verd)
       print verd
       if verd[0]:
@@ -144,7 +144,7 @@ class PermTypeChecker(object):
           return PermType.FS_WW
     else:
       # OB type
-      verd = [self.hasBadDatasource(topo,x) for x in topo.tasks[tids[0]].attempts]
+      verd = [self.hasBadDatasource(topo,x) for x in topo.tasks[tids[0]].attempts[2:]]
       if verd[0]:
         if verd[1]:
           return PermType.OB_DD
