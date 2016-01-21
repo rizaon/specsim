@@ -194,6 +194,21 @@ class Printer(object):
     for t in sim.tasks:
       print [(x.datanode,x.mapnode) for x in t.attempts]
 
+  def printPerm(self,k,v):
+    print "Hash key: ", k
+    if self.conf.EnableStateCollapsing:
+      print "Hash bit: ", self.bc.getFormattedSimBitmap(v)
+    print "Total count: ", v.getCount()
+    print "Probability: ", v.prob
+    print "Bad node: ", v.badnode
+    print "Bad rack: ", v.badrack
+    print "Topology: ", self.getTaskTopology(v)
+    print "Datanodes: ", v.file.blocks
+    print "IsLimplock:", self.isLimplock(v)
+    print "PermType:", self.ck.checkPermType(v)
+    print "====================================="
+
+
   def printPerms(self,queue):
     uniquePerm = len(queue)
     uniqueSucc = 0
@@ -227,16 +242,4 @@ class Printer(object):
     if self.conf.PrintPermutations:
       tuples = map(lambda x: ((self.bc.getTasksBitmap(x),self.bc.getFileBitmap(x)),x), queue)
       for k,v in sorted(tuples, key=lambda x:x[0]):
-        print "Hash key: ", k
-        if self.conf.EnableStateCollapsing:
-          print "Hash bit: ", self.bc.getFormattedSimBitmap(v)
-        print "Total count: ", v.getCount()
-        print "Probability: ", v.prob
-        print "Bad node: ", v.badnode
-        print "Bad rack: ", v.badrack
-        print "Topology: ", self.getTaskTopology(v)
-        print "Datanodes: ", v.file.blocks
-        print "IsLimplock:", self.isLimplock(v)
-        print "PermType:", self.ck.checkPermType(v)
-        print "====================================="
-
+        self.printPerm(k,v)

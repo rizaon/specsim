@@ -77,28 +77,37 @@ class PathSE(Speculator):
         d[a] += 1
     return d
 
-  def getNegPref(self,att,triedNM,triedMR,triedDR):
+  def getNegPref(self,att,triedMN,triedDN,triedRR):
     mRack = self.conf.getRackID(att.mapnode)
     dRack = self.conf.getRackID(att.datanode)
 
-    retryDN = triedNM.get(att.datanode,0)
-    retryMN = triedNM.get(att.mapnode,0)
-    sameMR  = triedMR.get(mRack,0)
-    sameDR  = triedDR.get(dRack,0)
+    retryMN = triedMN.get(att.mapnode,0)
+    retryDN = triedDN.get(att.datanode,0)
+    pointMR  = triedRR.get(mRack,0)
+    pointDR  = triedRR.get(dRack,0)
 
     pref = 0
-    pref = pref*10 + retryMN
-    pref = pref*10 + retryDN
-    pref = pref*10 + sameMR
-    pref = pref*10 + sameDR
+    pref = pref*10 + pointMR + pointDR
+    pref = pref*10 + retryMN + retryDN
     return pref
+
+  def debug_PrintPoint(self,sim,task,attID):
+    atts = task.attempts[:attID]
+    triedMN = self.toPointDict([a.mapnode for a in atts])
+    triedDN = self.toPointDict([a.datanode for a in atts])
+    triedRR = self.toPointDict([self.conf.getRackID(a.datanode) for a in atts] + \
+      [self.conf.getRackID(a.mapnode) for a in atts])
+    print triedMN
+    print triedDN
+    print triedRR
+    print self.getNegPref(task.attempts[attID],triedMN, triedDN,triedRR)
 
   def getPossibleBackups(self,sim,tid):
     atts = sim.tasks[tid].attempts
-    triedMN = [a.mapnode for a in atts]
-    triedDN = self.toPointDict([a.datanode for a in atts] + triedMN)
-    triedMR = self.toPointDict([self.conf.getRackID(a.mapnode) for a in atts])
-    triedDR = self.toPointDict([self.conf.getRackID(a.datanode) for a in atts])
+    triedMN = self.toPointDict([a.mapnode for a in atts])
+    triedDN = self.toPointDict([a.datanode for a in atts])
+    triedRR = self.toPointDict([self.conf.getRackID(a.datanode) for a in atts] + \
+      [self.conf.getRackID(a.mapnode) for a in atts])
 
     backups = []
     locatedDN = sim.file.blocks[tid]
@@ -106,7 +115,7 @@ class PathSE(Speculator):
       for map in xrange(0,self.conf.NUMNODE):
         if map not in triedMN:
           att = Attempt(dn,map)
-          pref =  self.getNegPref(att,triedDN,triedMR,triedDR)
+          pref =  self.getNegPref(att,triedMN, triedDN,triedRR)
           backups.append((pref,att))
     backups = sorted(backups)
     if self.HARDPREF:

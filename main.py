@@ -12,8 +12,11 @@ logging.basicConfig(filename="specsim.log",\
   filemode="w",level=logging.INFO)
 
 CONF = Conf()
+CONF.NUMNODE = 6
+CONF.NUMRACK = 3
 CONF.NUMSTAGE = 3
-CONF.PrintPermutations = True
+CONF.NUMREPL = 3
+#CONF.PrintPermutations = False
 
 #SPEC = BasicSE(CONF)
 #SPEC = FAReadSE(CONF)
@@ -30,14 +33,22 @@ def permuteFailure():
 
   failurequeue = []
   totalfailure = CONF.NUMNODE+CONF.NUMRACK
-  for i in xrange(0,CONF.NUMNODE):
+
+  sim = SimTopology(CONF,(0,-1))
+  sim.prob = 0.5
+  failurequeue.append(sim)
+  sim = SimTopology(CONF,(-1,0))
+  sim.prob = 0.5
+  failurequeue.append(sim)
+
+  """for i in xrange(0,CONF.NUMNODE):
     sim = SimTopology(CONF,(i,-1))
     sim.prob /= totalfailure
     failurequeue.append(sim)
   for i in xrange(0,CONF.NUMRACK):
     sim = SimTopology(CONF,(-1,i))
     sim.prob /= totalfailure
-    failurequeue.append(sim)
+    failurequeue.append(sim)"""
 
   TIME.stop()
   TIME.report("Failure permutation complete!",failurequeue)
@@ -244,6 +255,13 @@ def main():
   if CONF.EnableStateCollapsing:
     simqueue = reduceByTasksBitmap(simqueue)
   PRINT.printPerms(simqueue)
+
+  print "***********DEBUG***********"
+  for sim in simqueue:
+    if PRINT.isLimplock(sim):
+      PRINT.printPerm(0,sim)
+      for task in sim.tasks:
+        SPEC.debug_PrintPoint(sim,task,len(task.attempts)-1)
 
 if __name__ == '__main__':
   main()
