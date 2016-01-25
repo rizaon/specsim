@@ -133,7 +133,7 @@ class PermTypeChecker(object):
       # FS type
       verd = [self.hasBadDatasource(topo,topo.tasks[x].attempts[-1]) for x in tids]
       verd = sorted(verd)
-      print verd
+#      print tids, verd
       if verd[0]:
         if verd[1]:
           return PermType.FS_DD
@@ -146,7 +146,7 @@ class PermTypeChecker(object):
       # OB type
       verd = topo.tasks[tids[0]].attempts
       verd = [self.hasBadDatasource(topo,x) for x in verd[len(verd)-2:]]
-      print verd
+#      print tids, verd
       if verd[0]:
         if verd[1]:
           return PermType.OB_DD
@@ -198,6 +198,8 @@ class Printer(object):
     print "Hash key: ", k
     if self.conf.EnableStateCollapsing:
       print "Hash bit: ", self.bc.getFormattedSimBitmap(v)
+    print "Job prog: ", v.getJobProg() 
+    print "Stage: ", v.runstage
     print "Total count: ", v.getCount()
     print "Probability: ", v.prob
     print "Bad node: ", v.badnode

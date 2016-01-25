@@ -96,13 +96,13 @@ class SimTopology(object):
     return ((not bdn and bmp) or (bdn and not bmp)) or \
       ((not bdnr and bmpr) or (bdnr and not bmpr))
 
-  def needBackup(self,tid):
-    if (self.tasks[tid].attempts == []):
-      # no attempt ever scheduled, run original task
-      return True
-    else:
-      return  self.isSlow(self.tasks[tid].attempts[-1])  and \
-        self.jobprogress > 0.2
+  def getJobProg(self):
+    return self.jobprogress
+
+  """TODO: fix me to max(attempt progress)"""
+  def getTaskProg(self,tid):
+    att = self.tasks[tid].attempts[-1]
+    return 0.0 if self.isSlow(att) else 1.0
 
   def getCount(self):
     return self.count

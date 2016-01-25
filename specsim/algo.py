@@ -3,6 +3,7 @@
 from abc import ABCMeta, abstractmethod
 from .util import Bitcoder
 from .mapred import *
+import math
 
 class Speculator:
   __metaclass__ = ABCMeta
@@ -13,6 +14,13 @@ class Speculator:
 class BasicSE(Speculator):
   def __init__(self,conf):
     self.conf = conf
+
+  def needBackup(self,sim,tid):
+    if (sim.tasks[tid].attempts == []):
+      # no attempt ever scheduled, run original task
+      return True
+    else:
+      return sim.getJobProg() - sim.getTaskProg(tid) > 0.2
 
   def isAttemptAllowed(self,sim,tid,att):
     dislike = [a.mapnode for a in sim.tasks[tid].attempts]
@@ -42,6 +50,13 @@ class FAReadSE(Speculator):
   def __init__(self,conf):
     self.conf = conf
 
+  def needBackup(self,sim,tid):
+    if (sim.tasks[tid].attempts == []):
+      # no attempt ever scheduled, run original task
+      return True
+    else:
+      return sim.getJobProg() - sim.getTaskProg(tid) > 0.2
+
   def isAttemptAllowed(self,sim,tid,att):
     dislike = [a.mapnode for a in sim.tasks[tid].attempts]
     read = [a.datanode for a in sim.tasks[tid].attempts]
@@ -66,7 +81,87 @@ class FAReadSE(Speculator):
 class PathSE(Speculator):
   def __init__(self,conf):
     self.conf = conf
+#    self.bc = Bitcoder(conf)
     self.HARDPREF = False
+
+  def getPathGroup(self,task):
+    att = task.attempts[-1]
+    rD = self.conf.getRackID(att.datanode)
+    rM = self.conf.getRackID(att.mapnode)
+    if rD<rM:
+      return (rD,rM)
+    else:
+      return (rM,rD)
+
+  def getPathGroups(self,sim):
+    d = {}
+    for tid in range(0,len(sim.tasks)):
+      key = self.getPathGroup(sim.tasks[tid])
+      if key not in d:
+        d[key] = (sim.getTaskProg(tid),[tid])
+      else:
+        (prog,tasks) = d[key]
+        prog = (prog*len(tasks)+sim.getTaskProg(tid))/(len(tasks)+1)
+        tasks.append(tid)
+        d[key] = (prog,tasks)
+    return d
+
+  def hasBasicSpec(self,sim):
+    for tid in range(0,len(sim.tasks)):
+      if self.needBackup(sim,tid):
+        return True
+    return False
+
+  def specTask(self,queue,tid):
+    tmp = queue
+    queue = []
+
+    while len(tmp)>0:
+      sim = tmp.pop()
+      attempts = self.getPossibleBackups(sim,tid)
+      for att in attempts:
+        psim = sim.clone()
+        psim.addAttempt(tid,att)
+        psim.prob /= len(attempts)
+        queue.append(psim)
+    return queue
+
+  def specPathGroup(self,queue):
+    tmp = queue
+    queue = []
+    haveSpec = []
+
+    while len(tmp)>0:
+      sim = tmp.pop(0)
+      if (sim.getJobProg()>=1.0) or (self.hasBasicSpec(sim)):
+        haveSpec.append(sim)
+      else:
+        """ do path group spec here """
+        groups = self.getPathGroups(sim)
+        tospec = [sim]
+        if len(groups)==1:
+          """ SPOF, speculate one of the task """
+          tid = len(sim.tasks)-1
+          tospec = self.specTask(tospec,tid)
+        else:
+          """ speculate slowest group """
+          gAvgProg = .0
+          for k,(prog,tids) in groups.items():
+            gAvgProg += prog/len(groups)
+          for k,(prog,tids) in groups.items():
+            if gAvgProg-prog > 0.2:
+              for tid in tids:
+                tospec = self.specTask(tospec,tid)
+        queue.extend(tospec)
+
+    return (queue,haveSpec)
+
+  def needBackup(self,sim,tid):
+    if (sim.tasks[tid].attempts == []):
+      # no attempt ever scheduled, run original task
+      return True
+    else:
+      return sim.getJobProg() - sim.getTaskProg(tid) > 0.2
 
   def toPointDict(self,lst):
     d = {}

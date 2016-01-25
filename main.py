@@ -151,7 +151,7 @@ def reduceTaskPerms(queue):
   ret = ret.values()
 
   TIME.stop()
-  TIME.report("Reduction of block permutation done!" ,ret)
+  TIME.report("Reduction of task permutation done!" ,ret)
   return ret
 
 
@@ -163,7 +163,7 @@ def placeBackupTask(queue,taskid):
   queue = []
   while len(tmp)>0:
     sim = tmp.pop(0)
-    if not sim.needBackup(taskid):
+    if not SPEC.needBackup(sim,taskid):
       nobackup.append(sim)
     else:
       attempts = SPEC.getPossibleBackups(sim,taskid)
@@ -178,11 +178,19 @@ def placeBackupTask(queue,taskid):
   TIME.report("Backup task %d permutation done!" % taskid,queue)
   return queue
 
-def permuteBackupTask(queue):
-  for i in xrange(0,CONF.NUMTASK):
-    queue = placeBackupTask(queue,i)
+def permuteBackupTask(queue,numbackup):
+  if isinstance(SPEC, PathSE):
+    (speced,queue) = SPEC.specPathGroup(queue)
+    for i in xrange(0,CONF.NUMTASK):
+      queue = placeBackupTask(queue,i)
+    queue = speced + queue
+  else:
+    for i in xrange(0,CONF.NUMTASK):
+      queue = placeBackupTask(queue,i)
+
   for sim in queue:
     sim.updateProgress()
+
   return queue
 
 
@@ -244,7 +252,8 @@ def main():
   """ stage  1: run SE """
   numbackup = 1
   while numbackup < CONF.NUMSTAGE:
-    simqueue = permuteBackupTask(simqueue)
+    print numbackup
+    simqueue = permuteBackupTask(simqueue,numbackup)
     if CONF.EnableStateCollapsing:
       simqueue = reduceTaskPerms(simqueue)
     timer.stop()
@@ -256,13 +265,26 @@ def main():
     simqueue = reduceByTasksBitmap(simqueue)
   PRINT.printPerms(simqueue)
 
-  print "***********DEBUG***********"
+  """print "***********DEBUG***********"
   for sim in simqueue:
     if PRINT.isLimplock(sim):
       PRINT.printPerm(0,sim)
       for task in sim.tasks:
-        SPEC.debug_PrintPoint(sim,task,len(task.attempts)-1)
+        SPEC.debug_PrintPoint(sim,task,len(task.attempts)-1)"""
+
+def test_ShouldSpec():
+  sim = SimTopology(CONF,(-1,0))
+  sim.runstage = 1
+  sim.file.blocks = [[1, 0, 3], [1, 0, 3]]
+  sim.addAttempt(0,Attempt(1,0))
+  sim.addAttempt(0,Attempt(3,5))
+  sim.addAttempt(1,Attempt(0,1))
+  sim.addAttempt(1,Attempt(1,2))
+  sim.updateProgress()
+  print SPEC.hasBasicSpec(sim)
+  PRINT.printPerm((BC.getTasksBitmap(sim),BC.getFileBitmap(sim)),sim)
 
 if __name__ == '__main__':
   main()
+#  test_ShouldSpec()
 
