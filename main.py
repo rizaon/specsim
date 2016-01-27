@@ -12,11 +12,6 @@ logging.basicConfig(filename="specsim.log",\
   filemode="w",level=logging.INFO)
 
 CONF = Conf()
-CONF.NUMNODE = 6
-CONF.NUMRACK = 3
-CONF.NUMSTAGE = 3
-CONF.NUMREPL = 3
-#CONF.PrintPermutations = False
 
 #SPEC = BasicSE(CONF)
 #SPEC = FAReadSE(CONF)
@@ -76,6 +71,7 @@ def placeBlock(queue, blockid):
       psim.prob /= len(blocks)
       queue.append(psim)
 
+
   TIME.stop()
   TIME.report("Block %d permutation done!" % blockid,queue)
   return queue
@@ -83,15 +79,17 @@ def placeBlock(queue, blockid):
 def permuteBlock(queue):
   for i in xrange(0,CONF.NUMBLOCK):
     queue = placeBlock(queue,i)
+    if CONF.EnableDeepOpt:
+      queue = reduceBlockPerms(queue, i+1)
   return queue
 
-def reduceBlockPerms(queue):
+def reduceBlockPerms(queue,blocksize):
   TIME.start()
 
   ret = dict()
   for sim in queue:
     if CONF.EnableTaskSymmetry:
-      OPT.reorderBlocks(sim)
+      OPT.reorderBlocksPartial(sim,blocksize)
     id = BC.getSimBitmap(sim)
     if id in ret:
       sameperm = ret[id]
@@ -128,22 +126,32 @@ def placeOriginalTask(queue,taskid):
   return queue
 
 def permuteOriginalTask(queue):
+  for sim in queue:
+    sim.moveStageUp()
+
   for i in xrange(0,CONF.NUMTASK):
     queue = placeOriginalTask(queue,i)
+    if CONF.EnableDeepOpt:
+      queue = reduceTaskPerms(queue, i+1)
+
   for sim in queue:
     sim.updateProgress()
   return queue
 
-def reduceTaskPerms(queue):
+def reduceTaskPerms(queue,tasksize):
   TIME.start()
 
   ret = dict()
   for sim in queue:
     if CONF.EnableTaskSymmetry:
-      OPT.reorderTasks(sim)
-    id = BC.getSimBitmap(sim)
+      OPT.reorderTasksPartial(sim,tasksize)
+    id = BC.getSimBitmapPartial(sim,tasksize)
     if id in ret:
       sameperm = ret[id]
+#      if (BC.getSimBitmap(sim)!=BC.getSimBitmap(sameperm)):
+#        print "VIOLATION: %d" % id
+#        PRINT.printPerm(BC.getSimBitmap(sameperm),sameperm)
+#        PRINT.printPerm(BC.getSimBitmap(sim),sim)
       sameperm.count += sim.count
       sameperm.prob += sim.prob
     else:
@@ -179,6 +187,9 @@ def placeBackupTask(queue,taskid):
   return queue
 
 def permuteBackupTask(queue,numbackup):
+  for sim in queue:
+    sim.moveStageUp()
+
   if isinstance(SPEC, PathSE):
     (speced,queue) = SPEC.specPathGroup(queue)
     for i in xrange(0,CONF.NUMTASK):
@@ -200,7 +211,7 @@ def reduceByTasksBitmap(queue):
   ret = dict()
   for sim in queue:
     if CONF.EnableTaskSymmetry:
-      OPT.reorderTasks(sim, True)
+      OPT.reorderTasks(sim, CONF.NUMTASK)
     id = BC.getTasksBitmap(sim)
     if id in ret:
       sameperm = ret[id]
@@ -229,7 +240,7 @@ def main():
   if CONF.NUMSTAGE > -1:
     simqueue = permuteBlock(simqueue)
     if CONF.EnableStateCollapsing:
-      simqueue = reduceBlockPerms(simqueue)
+      simqueue = reduceBlockPerms(simqueue, CONF.NUMBLOCK)
     timer.stop()
     timer.report("Up to block placement",simqueue)
 
@@ -241,7 +252,7 @@ def main():
   if CONF.NUMSTAGE > 0:
     simqueue = permuteOriginalTask(simqueue)
     if CONF.EnableStateCollapsing:
-      simqueue = reduceTaskPerms(simqueue)
+      simqueue = reduceTaskPerms(simqueue, CONF.NUMTASK)
     timer.stop()
     timer.report("Up to task placement",simqueue)
 
@@ -249,13 +260,17 @@ def main():
       PRINT.printPerms(simqueue)
       exit(0)
 
+    if isinstance(SPEC, PathSE):
+      simqueue = SPEC.filterForDelay(simqueue)
+#      for sim in SPEC.delayed:
+#        PRINT.printPerm(0,sim)
+
   """ stage  1: run SE """
   numbackup = 1
   while numbackup < CONF.NUMSTAGE:
-    print numbackup
     simqueue = permuteBackupTask(simqueue,numbackup)
     if CONF.EnableStateCollapsing:
-      simqueue = reduceTaskPerms(simqueue)
+      simqueue = reduceTaskPerms(simqueue, CONF.NUMTASK)
     timer.stop()
     timer.report("Up to %dth backup placement" % numbackup,simqueue)
     numbackup += 1
@@ -273,14 +288,14 @@ def main():
         SPEC.debug_PrintPoint(sim,task,len(task.attempts)-1)"""
 
 def test_ShouldSpec():
-  sim = SimTopology(CONF,(-1,0))
-  sim.runstage = 1
+  sim = SimTopology(CONF,(0,-1))
+  sim.runstage = 0
   sim.file.blocks = [[1, 0, 3], [1, 0, 3]]
-  sim.addAttempt(0,Attempt(1,0))
-  sim.addAttempt(0,Attempt(3,5))
-  sim.addAttempt(1,Attempt(0,1))
-  sim.addAttempt(1,Attempt(1,2))
+  sim.addAttempt(0,Attempt(0,0))
+  sim.addAttempt(1,Attempt(0,0))
+  sim.moveStageUp()
   sim.updateProgress()
+  print sim.isSlow(sim.tasks[0].attempts[0])
   print SPEC.hasBasicSpec(sim)
   PRINT.printPerm((BC.getTasksBitmap(sim),BC.getFileBitmap(sim)),sim)
 

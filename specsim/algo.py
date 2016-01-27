@@ -1,7 +1,7 @@
 
 
 from abc import ABCMeta, abstractmethod
-from .util import Bitcoder
+from .util import Bitcoder, Printer
 from .mapred import *
 import math
 
@@ -81,8 +81,51 @@ class FAReadSE(Speculator):
 class PathSE(Speculator):
   def __init__(self,conf):
     self.conf = conf
-#    self.bc = Bitcoder(conf)
+    self.bc = Bitcoder(conf)
+    self.pr = Printer(conf)
     self.HARDPREF = False
+    self.delayed = []
+
+  def filterForDelay(self,queue):
+    from collections import defaultdict
+    tmp = queue
+    queue = []
+
+    while len(tmp)>0:
+      sim = tmp.pop()
+      hasNodeLocal = False
+      rsc = defaultdict(int)
+      nsc = defaultdict(int)
+      (a,b) = (-1,-1)
+      (c,d) = (-1,-1)
+      for task in sim.tasks:
+        """ Rack level """
+        (a,b) = self.getPathGroup(task)
+        rsc[a] += 1
+        if a!=b:
+          rsc[b] += 1
+
+        """ Node level"""
+        att = task.attempts[-1]
+        if (att.datanode < att.mapnode):
+          (c,d) = (att.datanode,att.mapnode)
+        else:
+          (c,d) = (att.mapnode,att.datanode)
+        hasNodeLocal = hasNodeLocal or (c==d)
+        nsc[c] += 1
+        if (c!=d):
+          nsc[d] += 1
+
+      spof = (rsc[a]==len(sim.tasks)) or \
+          (rsc[b]==len(sim.tasks)) or \
+          (nsc[c]==len(sim.tasks)) or \
+          (nsc[d]==len(sim.tasks))
+      if not hasNodeLocal and spof:
+        self.delayed.append(sim)
+      else:
+        queue.append(sim)
+
+    return queue
 
   def getPathGroup(self,task):
     att = task.attempts[-1]
@@ -139,19 +182,32 @@ class PathSE(Speculator):
         """ do path group spec here """
         groups = self.getPathGroups(sim)
         tospec = [sim]
-        if len(groups)==1:
-          """ SPOF, speculate one of the task """
-          tid = len(sim.tasks)-1
-          tospec = self.specTask(tospec,tid)
+
+        gAvgProg = .0
+        slowestProg = 1.0
+        for k,(prog,tids) in groups.items():
+          gAvgProg += prog/len(groups)
+          if prog<slowestProg:
+            slowestProg = prog
+
+        if gAvgProg-slowestProg <= 0.2:
+          """ no group pass threshold, spec one for each slowest group"""
+          #print "Single group, single task spec"
+          for k,(prog,tids) in groups.items():
+            if prog == slowestProg:
+              for tid in tids:
+                if sim.getTaskProg(tid)<1.0:
+                  tospec = self.specTask(tospec,tid)
+                  break
         else:
           """ speculate slowest group """
-          gAvgProg = .0
-          for k,(prog,tids) in groups.items():
-            gAvgProg += prog/len(groups)
+          #print "All group spec"
           for k,(prog,tids) in groups.items():
             if gAvgProg-prog > 0.2:
               for tid in tids:
-                tospec = self.specTask(tospec,tid)
+                if sim.getTaskProg(tid)<1.0:
+                  tospec = self.specTask(tospec,tid)
+
         queue.extend(tospec)
 
     return (queue,haveSpec)
@@ -233,8 +289,19 @@ class Optimizer(object):
     sim.file.blocks = sorted(sim.file.blocks, \
         key=lambda x:(self.bc.getBlockBitmap(sim,x),x))
 
+  def reorderBlocksPartial(self,sim,size):
+    blk = len(sim.file.blocks)
+    pad = []
+    if size < blk:
+      pad = sim.file.blocks[size:blk]
+      sim.file.blocks = sim.file.blocks[0:size]
 
-  def reorderTasks(self,sim, ignoreFileBitmap = False):
+    self.reorderBlocks(sim)
+
+    if pad:
+      sim.file.blocks = sim.file.blocks + pad
+
+  def reorderTasks(self,sim,ignoreFileBitmap = False):
     tuples = []
     stage = sim.runstage + 1
     for i in xrange(0,len(sim.tasks)):
@@ -249,4 +316,20 @@ class Optimizer(object):
     for i in xrange(0,len(sim.tasks)):
       sim.file.blocks[i] = tuples[i][1]
       sim.tasks[i] = tuples[i][2]
+
+  def reorderTasksPartial(self,sim,size):
+    blk = len(sim.file.blocks)
+    blkpad = []
+    tskpad = []
+    if size < blk:
+      blkpad = sim.file.blocks[size:blk]
+      sim.file.blocks = sim.file.blocks[0:size]
+      tskpad = sim.tasks[size:blk]
+      sim.tasks = sim.tasks[0:size]
+
+    self.reorderTasks(sim,False)
+
+    if blkpad:
+      sim.file.blocks = sim.file.blocks + blkpad
+      sim.tasks = sim.tasks + tskpad
 

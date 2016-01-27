@@ -67,6 +67,20 @@ class Bitcoder(object):
     return self.getFileBitmap(sim) * (16**(len(sim.tasks)*stage)) + \
       self.getTasksBitmap(sim)
 
+  def getSimBitmapPartial(self,sim,size):
+    blk = len(sim.tasks)
+    tskpad = []
+    if size < blk:
+      tskpad = sim.tasks[size:blk]
+      sim.tasks = sim.tasks[0:size]
+
+    code = self.getSimBitmap(sim)
+
+    if tskpad:
+      sim.tasks = sim.tasks + tskpad
+
+    return code
+
   def getFormattedSimBitmap(self,sim):
     taskBitLength = (sim.runstage+1)*4
     outstr = ""
@@ -124,9 +138,11 @@ class PermTypeChecker(object):
 
   def checkPermType(self,topo):
     """ This check assume there are only 2 task """
-    if len(topo.tasks)<>2:
-      raise Exception("Topology has less/more than 2 tasks")
     tids = self.getLimpTaskIDs(topo)
+    if len(topo.tasks)<>2:
+      #raise Exception("Topology has less/more than 2 tasks")
+      return PermType.NORMAL if not tids else PermType.UNK
+
     if not tids:
       return PermType.NORMAL
     elif len(tids) == len(topo.tasks):

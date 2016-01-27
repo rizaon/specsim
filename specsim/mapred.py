@@ -75,8 +75,10 @@ class SimTopology(object):
   def setBlocks(self,blockid,repl):
     self.file.blocks[blockid] = repl
 
-  def updateProgress(self):
+  def moveStageUp(self):
     self.runstage += 1
+
+  def updateProgress(self):
     stage = self.runstage + 1
 
     if (self.runstage >= 0):
