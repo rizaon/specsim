@@ -54,18 +54,39 @@ class Bitcoder(object):
 
   def getTaskBitmap(self,sim,task):
     stage = sim.runstage + 1
-    return reduce(lambda x,y: x*16 + \
-      self.getAttemptBitmap(sim,y),task.attempts,0) * 16**(stage-len(task.attempts))
+#### aligned direction ####
+#    return reduce(lambda x,y: x*16 + \
+#      self.getAttemptBitmap(sim,y),task.attempts,0) * 16**(stage-len(task.attempts))
+
+#### reversed direction ####
+    task.attempts.reverse()
+    bit = reduce(lambda x,y: x*16 + \
+      self.getAttemptBitmap(sim,y),task.attempts,0) #* 16**(stage-len(task.attempts))
+    task.attempts.reverse()
+    return bit
 
   def getTasksBitmap(self,sim):
     stage = sim.runstage + 1
+#### aligned direction ####
+#    return reduce(lambda x,y: x*(16**stage) + \
+#      self.getTaskBitmap(sim,y)*(16**(stage-len(y.attempts))),sim.tasks,0)
+
+#### reversed direction ####
     return reduce(lambda x,y: x*(16**stage) + \
-      self.getTaskBitmap(sim,y)*(16**(stage-len(y.attempts))),sim.tasks,0)
+      self.getTaskBitmap(sim,y),sim.tasks,0)
 
   def getSimBitmap(self,sim):
     stage = sim.runstage + 1
-    return self.getFileBitmap(sim) * (16**(len(sim.tasks)*stage)) + \
-      self.getTasksBitmap(sim)
+#### aligned direction ####
+#    return self.getFileBitmap(sim) * (16**(len(sim.tasks)*stage)) + \
+#      self.getTasksBitmap(sim)
+
+#### reversed direction ####
+    return self.getTasksBitmap(sim) * \
+      (4**(len(sim.file.blocks)*len(sim.file.blocks[0]))) + \
+      self.getFileBitmap(sim)
+
+
 
   def getSimBitmapPartial(self,sim,size):
     blk = len(sim.tasks)
@@ -87,15 +108,16 @@ class Bitcoder(object):
     NUMBLOCK = self.conf.NUMBLOCK
     NUMREPL = self.conf.NUMREPL
 
-    dnbit = ("{0:0" + str(2*NUMBLOCK*NUMREPL) + "b}").format(self.getFileBitmap(sim))
-    outstr += ",".join([dnbit[i:i+2*NUMREPL] for i in xrange(0,len(dnbit),2*NUMREPL)])
-
     taskBits = []
     for task in sim.tasks:
       st = ("{0:0" + str(taskBitLength) + "b}").format(self.getTaskBitmap(sim,task))
       taskbit = ",".join([st[i:i+4] for i in xrange(0,len(st),4)])
       taskBits.append(taskbit)
-    outstr += "-" + "|".join(taskBits)
+    outstr = "|".join(taskBits)
+
+    dnbit = ("{0:0" + str(2*NUMBLOCK*NUMREPL) + "b}").format(self.getFileBitmap(sim))
+    outstr += "-" + ",".join([dnbit[i:i+2*NUMREPL] for i in xrange(0,len(dnbit),2*NUMREPL)])
+
     return outstr
 
 
