@@ -275,6 +275,14 @@ class PathSE(Speculator):
       backups = filter(lowpref,backups)
     return [y for (x,y) in backups]
 
+  def printPathSEStat(self):
+    ct = len(self.delayed)
+    delfract = .0
+    for sim in self.delayed:
+      delfract += sim.prob
+    print "Delayed count: ", ct
+    print "Delayed fract: ", delfract
+
 
 class Optimizer(object):
   def __init__(self,conf):

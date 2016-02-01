@@ -278,6 +278,8 @@ def main():
 
   if CONF.EnableStateCollapsing:
     simqueue = reduceByTasksBitmap(simqueue)
+  if isinstance(SPEC, PathSE):
+    SPEC.printPathSEStat()
   PRINT.printPerms(simqueue)
 
   """print "***********DEBUG***********"
