@@ -55,70 +55,70 @@ class Bitcoder(object):
   def getTaskBitmap(self,sim,task):
     stage = sim.runstage + 1
 #### aligned direction ####
-#    return reduce(lambda x,y: x*16 + \
-#      self.getAttemptBitmap(sim,y),task.attempts,0) * 16**(stage-len(task.attempts))
+    return reduce(lambda x,y: x*16 + \
+      self.getAttemptBitmap(sim,y),task.attempts,0) * 16**(stage-len(task.attempts))
 
 #### reversed direction ####
-    task.attempts.reverse()
-    bit = reduce(lambda x,y: x*16 + \
-      self.getAttemptBitmap(sim,y),task.attempts,0) #* 16**(stage-len(task.attempts))
-    task.attempts.reverse()
-    return bit
+#    task.attempts.reverse()
+#    bit = reduce(lambda x,y: x*16 + \
+#      self.getAttemptBitmap(sim,y),task.attempts,0) #* 16**(stage-len(task.attempts))
+#    task.attempts.reverse()
+#    return bit
 
   def getTasksBitmap(self,sim):
     stage = sim.runstage + 1
 #### aligned direction ####
-#    return reduce(lambda x,y: x*(16**stage) + \
-#      self.getTaskBitmap(sim,y)*(16**(stage-len(y.attempts))),sim.tasks,0)
+    return reduce(lambda x,y: x*(16**stage) + \
+      self.getTaskBitmap(sim,y)*(16**(stage-len(y.attempts))),sim.getMapTasks(),0)
 
 #### reversed direction ####
-    return reduce(lambda x,y: x*(16**stage) + \
-      self.getTaskBitmap(sim,y),sim.tasks,0)
+#    return reduce(lambda x,y: x*(16**stage) + \
+#      self.getTaskBitmap(sim,y),sim.getMapTasks(),0)
 
   def getSimBitmap(self,sim):
     stage = sim.runstage + 1
 #### aligned direction ####
-#    return self.getFileBitmap(sim) * (16**(len(sim.tasks)*stage)) + \
-#      self.getTasksBitmap(sim)
+    return self.getFileBitmap(sim) * (16**(len(sim.getMapTasks())*stage)) + \
+      self.getTasksBitmap(sim)
 
 #### reversed direction ####
-    return self.getTasksBitmap(sim) * \
-      (4**(len(sim.file.blocks)*len(sim.file.blocks[0]))) + \
-      self.getFileBitmap(sim)
+#    return self.getTasksBitmap(sim) * \
+#      (4**(len(sim.file.blocks)*len(sim.file.blocks[0]))) + \
+#      self.getFileBitmap(sim)
 
 
 
   def getSimBitmapPartial(self,sim,size):
-    blk = len(sim.tasks)
+    blk = len(sim.getMapTasks())
     tskpad = []
     if size < blk:
-      tskpad = sim.tasks[size:blk]
-      sim.tasks = sim.tasks[0:size]
+      tskpad = sim.mapTasks[size:blk]
+      sim.mapTasks = sim.mapTasks[0:size]
 
     code = self.getSimBitmap(sim)
 
     if tskpad:
-      sim.tasks = sim.tasks + tskpad
+      tasks = sim.getMapTasks()
+      sim.mapTasks = sim.mapTasks + tskpad
 
     return code
 
   def getFormattedSimBitmap(self,sim):
     taskBitLength = (sim.runstage+1)*4
-    outstr = ""
     NUMBLOCK = self.conf.NUMBLOCK
     NUMREPL = self.conf.NUMREPL
 
+    dnbit = ("{0:0" + str(2*NUMBLOCK*NUMREPL) + "b}").format(self.getFileBitmap(sim))
+    dnstr = ",".join([dnbit[i:i+2*NUMREPL] for i in xrange(0,len(dnbit),2*NUMREPL)])
+
     taskBits = []
-    for task in sim.tasks:
+    for task in sim.getMapTasks():
       st = ("{0:0" + str(taskBitLength) + "b}").format(self.getTaskBitmap(sim,task))
       taskbit = ",".join([st[i:i+4] for i in xrange(0,len(st),4)])
       taskBits.append(taskbit)
-    outstr = "|".join(taskBits)
+    taskstr = "|".join(taskBits)
 
-    dnbit = ("{0:0" + str(2*NUMBLOCK*NUMREPL) + "b}").format(self.getFileBitmap(sim))
-    outstr += "-" + ",".join([dnbit[i:i+2*NUMREPL] for i in xrange(0,len(dnbit),2*NUMREPL)])
-
-    return outstr
+    return dnstr+"-"+taskstr
 
 
 class PermType(Enum):
@@ -142,7 +142,7 @@ class PermTypeChecker(object):
     limp = []
     if sim.runstage >= 0:
       for i in xrange(0,self.conf.NUMTASK):
-        if sim.isSlow(sim.tasks[i].attempts[-1]):
+        if sim.isMapSlow(sim.getMapTasks()[i].attempts[-1]):
           limp.append(i)
     return limp
 
@@ -161,15 +161,16 @@ class PermTypeChecker(object):
   def checkPermType(self,topo):
     """ This check assume there are only 2 task """
     tids = self.getLimpTaskIDs(topo)
-    if len(topo.tasks)<>2:
+    mapTasks = topo.getMapTasks()
+    if len(mapTasks)<>2:
       #raise Exception("Topology has less/more than 2 tasks")
       return PermType.NORMAL if not tids else PermType.UNK
 
     if not tids:
       return PermType.NORMAL
-    elif len(tids) == len(topo.tasks):
+    elif len(tids) == len(mapTasks):
       # FS type
-      verd = [self.hasBadDatasource(topo,topo.tasks[x].attempts[-1]) for x in tids]
+      verd = [self.hasBadDatasource(topo,mapTasks[x].attempts[-1]) for x in tids]
       verd = sorted(verd)
 #      print tids, verd
       if verd[0]:
@@ -182,7 +183,7 @@ class PermTypeChecker(object):
           return PermType.FS_WW
     else:
       # OB type
-      verd = topo.tasks[tids[0]].attempts
+      verd = mapTasks[tids[0]].attempts
       verd = [self.hasBadDatasource(topo,x) for x in verd[len(verd)-2:]]
 #      print tids, verd
       if verd[0]:
@@ -208,8 +209,8 @@ class Printer(object):
 
   def getTaskTopology(self,sim):
     topo = []
-    for i in xrange(0,len(sim.tasks)):
-      task = sim.tasks[i]
+    for i in xrange(0,len(sim.getMapTasks())):
+      task = sim.getMapTasks()[i]
       for j in xrange(0,len(task.attempts)):
         att = task.attempts[j]
         tuple = ("t%d_%d" % (i,j), att.datanode, att.mapnode)
@@ -223,20 +224,20 @@ class Printer(object):
     limp = False
     if sim.runstage >= 0:
       for i in xrange(0,self.conf.NUMTASK):
-        limp = limp or sim.isSlow(sim.tasks[i].attempts[-1])
+        limp = limp or sim.isMapSlow(sim.getMapTasks()[i].attempts[-1])
     return limp
 
   def printSim(self,sim):
     print (sim.badnode,sim.badrack)
     print sim.file.blocks
-    for t in sim.tasks:
+    for t in sim.getMapTasks():
       print [(x.datanode,x.mapnode) for x in t.attempts]
 
   def printPerm(self,k,v):
     print "Hash key: ", k
     if self.conf.EnableStateCollapsing:
       print "Hash bit: ", self.bc.getFormattedSimBitmap(v)
-    print "Job prog: ", v.getJobProg() 
+    print "Job prog: ", v.getMapProg()
     print "Stage: ", v.runstage
     print "Total count: ", v.getCount()
     print "Probability: ", v.prob

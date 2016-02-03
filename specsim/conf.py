@@ -4,7 +4,7 @@ class Conf(object):
   def __init__(self):
     self.NUMNODE = 6
     self.NUMRACK = 3
-    self.NUMTASK = 5
+    self.NUMTASK = 3
     self.NUMBLOCK = self.NUMTASK
     self.NUMSTAGE = 3
     self.NUMREPL = 3

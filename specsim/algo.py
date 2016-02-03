@@ -16,14 +16,16 @@ class BasicSE(Speculator):
     self.conf = conf
 
   def needBackup(self,sim,tid):
-    if (sim.tasks[tid].attempts == []):
+    if (sim.getMapTasks()[tid].attempts == []):
       # no attempt ever scheduled, run original task
       return True
     else:
-      return sim.getJobProg() - sim.getTaskProg(tid) > 0.2
+      return sim.getMapProg() - sim.getMapTaskProg(tid) > 0.2
 
   def isAttemptAllowed(self,sim,tid,att):
-    dislike = [a.mapnode for a in sim.tasks[tid].attempts]
+    assert isinstance(att, MapAttempt)
+
+    dislike = [a.mapnode for a in sim.getMapTasks()[tid].attempts]
     locatedDN = set(sim.file.blocks[tid])
 
     differentWorknode = not (att.mapnode in dislike)
@@ -37,12 +39,12 @@ class BasicSE(Speculator):
 
   def getPossibleBackups(self,sim,tid):
     backups = []
-    dislike = [a.mapnode for a in sim.tasks[tid].attempts]
+    dislike = [a.mapnode for a in sim.getMapTasks()[tid].attempts]
     locatedDN = sim.file.blocks[tid]
     for dn in locatedDN:
       for map in xrange(0,self.conf.NUMNODE):
         if map not in dislike:
-          backups.append(Attempt(dn,map))
+          backups.append(MapAttempt(dn,map))
     return backups
 
 
@@ -51,15 +53,17 @@ class FAReadSE(Speculator):
     self.conf = conf
 
   def needBackup(self,sim,tid):
-    if (sim.tasks[tid].attempts == []):
+    if (sim.getMapTasks()[tid].attempts == []):
       # no attempt ever scheduled, run original task
       return True
     else:
-      return sim.getJobProg() - sim.getTaskProg(tid) > 0.2
+      return sim.getMapProg() - sim.getMapTaskProg(tid) > 0.2
 
   def isAttemptAllowed(self,sim,tid,att):
-    dislike = [a.mapnode for a in sim.tasks[tid].attempts]
-    read = [a.datanode for a in sim.tasks[tid].attempts]
+    assert isinstance(att, MapAttempt)
+
+    dislike = [a.mapnode for a in sim.getMapTasks()[tid].attempts]
+    read = [a.datanode for a in sim.getMapTasks()[tid].attempts]
     locatedDN = set(sim.file.blocks[tid])
 
     differentWorknode = not (att.mapnode in dislike)
@@ -72,7 +76,7 @@ class FAReadSE(Speculator):
     locatedDN = sim.file.blocks[tid]
     for dn in locatedDN:
       for map in xrange(0,self.conf.NUMNODE):
-        att = Attempt(dn,map)
+        att = MapAttempt(dn,map)
         if self.isAttemptAllowed(sim,tid,att):
           backups.append(att)
     return backups
@@ -98,7 +102,7 @@ class PathSE(Speculator):
       nsc = defaultdict(int)
       (a,b) = (-1,-1)
       (c,d) = (-1,-1)
-      for task in sim.tasks:
+      for task in sim.getMapTasks():
         """ Rack level """
         (a,b) = self.getPathGroup(task)
         rsc[a] += 1
@@ -116,10 +120,11 @@ class PathSE(Speculator):
         if (c!=d):
           nsc[d] += 1
 
-      spof = (rsc[a]==len(sim.tasks)) or \
-          (rsc[b]==len(sim.tasks)) or \
-          (nsc[c]==len(sim.tasks)) or \
-          (nsc[d]==len(sim.tasks))
+      mtasksize = len(sim.getMapTasks())
+      spof = (rsc[a]==mtasksize) or \
+          (rsc[b]==mtasksize) or \
+          (nsc[c]==mtasksize) or \
+          (nsc[d]==mtasksize)
       if not hasNodeLocal and spof:
         self.delayed.append(sim)
       else:
@@ -138,19 +143,20 @@ class PathSE(Speculator):
 
   def getPathGroups(self,sim):
     d = {}
-    for tid in range(0,len(sim.tasks)):
-      key = self.getPathGroup(sim.tasks[tid])
+    mapTasks = sim.getMapTasks()
+    for tid in range(0,len(mapTasks)):
+      key = self.getPathGroup(mapTasks[tid])
       if key not in d:
-        d[key] = (sim.getTaskProg(tid),[tid])
+        d[key] = (sim.getMapTaskProg(tid),[tid])
       else:
         (prog,tasks) = d[key]
-        prog = (prog*len(tasks)+sim.getTaskProg(tid))/(len(tasks)+1)
+        prog = (prog*len(tasks)+sim.getMapTaskProg(tid))/(len(tasks)+1)
         tasks.append(tid)
         d[key] = (prog,tasks)
     return d
 
   def hasBasicSpec(self,sim):
-    for tid in range(0,len(sim.tasks)):
+    for tid in range(0,len(sim.getMapTasks())):
       if self.needBackup(sim,tid):
         return True
     return False
@@ -164,7 +170,7 @@ class PathSE(Speculator):
       attempts = self.getPossibleBackups(sim,tid)
       for att in attempts:
         psim = sim.clone()
-        psim.addAttempt(tid,att)
+        psim.addAttempt(tid,att,True)
         psim.prob /= len(attempts)
         queue.append(psim)
     return queue
@@ -176,7 +182,7 @@ class PathSE(Speculator):
 
     while len(tmp)>0:
       sim = tmp.pop(0)
-      if (sim.getJobProg()>=1.0) or (self.hasBasicSpec(sim)):
+      if (sim.getMapProg()>=1.0) or (self.hasBasicSpec(sim)):
         haveSpec.append(sim)
       else:
         """ do path group spec here """
@@ -196,7 +202,7 @@ class PathSE(Speculator):
           for k,(prog,tids) in groups.items():
             if prog == slowestProg:
               for tid in tids:
-                if sim.getTaskProg(tid)<1.0:
+                if sim.getMapTaskProg(tid)<1.0:
                   tospec = self.specTask(tospec,tid)
                   break
         else:
@@ -205,7 +211,7 @@ class PathSE(Speculator):
           for k,(prog,tids) in groups.items():
             if gAvgProg-prog > 0.2:
               for tid in tids:
-                if sim.getTaskProg(tid)<1.0:
+                if sim.getMapTaskProg(tid)<1.0:
                   tospec = self.specTask(tospec,tid)
 
         queue.extend(tospec)
@@ -213,11 +219,11 @@ class PathSE(Speculator):
     return (queue,haveSpec)
 
   def needBackup(self,sim,tid):
-    if (sim.tasks[tid].attempts == []):
+    if (sim.getMapTasks()[tid].attempts == []):
       # no attempt ever scheduled, run original task
       return True
     else:
-      return sim.getJobProg() - sim.getTaskProg(tid) > 0.2
+      return sim.getMapProg() - sim.getMapTaskProg(tid) > 0.2
 
   def toPointDict(self,lst):
     d = {}
@@ -254,7 +260,7 @@ class PathSE(Speculator):
     print self.getNegPref(task.attempts[attID],triedMN, triedDN,triedRR)
 
   def getPossibleBackups(self,sim,tid):
-    atts = sim.tasks[tid].attempts
+    atts = sim.getMapTasks()[tid].attempts
     triedMN = self.toPointDict([a.mapnode for a in atts])
     triedDN = self.toPointDict([a.datanode for a in atts])
     triedRR = self.toPointDict([self.conf.getRackID(a.datanode) for a in atts] + \
@@ -265,7 +271,7 @@ class PathSE(Speculator):
     for dn in locatedDN:
       for map in xrange(0,self.conf.NUMNODE):
         if map not in triedMN:
-          att = Attempt(dn,map)
+          att = MapAttempt(dn,map)
           pref =  self.getNegPref(att,triedMN, triedDN,triedRR)
           backups.append((pref,att))
     backups = sorted(backups)
@@ -312,18 +318,21 @@ class Optimizer(object):
   def reorderTasks(self,sim,ignoreFileBitmap = False):
     tuples = []
     stage = sim.runstage + 1
-    for i in xrange(0,len(sim.tasks)):
+    mapTasks = sim.getMapTasks()
+
+    for i in xrange(0,len(mapTasks)):
       code = (0 if ignoreFileBitmap \
         else self.bc.getBlockBitmap(sim,sim.file.blocks[i])) * (16**stage) + \
-          self.bc.getTaskBitmap(sim,sim.tasks[i])
+          self.bc.getTaskBitmap(sim,mapTasks[i])
       tuple = (code, \
         sim.file.blocks[i], \
-        sim.tasks[i])
+        mapTasks[i])
       tuples.append(tuple)
+
     tuples = sorted(tuples, key = lambda x:x[0:2])
-    for i in xrange(0,len(sim.tasks)):
+    for i in xrange(0,len(mapTasks)):
       sim.file.blocks[i] = tuples[i][1]
-      sim.tasks[i] = tuples[i][2]
+      mapTasks[i] = tuples[i][2]
 
   def reorderTasksPartial(self,sim,size):
     blk = len(sim.file.blocks)
@@ -332,12 +341,12 @@ class Optimizer(object):
     if size < blk:
       blkpad = sim.file.blocks[size:blk]
       sim.file.blocks = sim.file.blocks[0:size]
-      tskpad = sim.tasks[size:blk]
-      sim.tasks = sim.tasks[0:size]
+      tskpad = sim.mapTasks[size:blk]
+      sim.mapTasks = sim.mapTasks[0:size]
 
     self.reorderTasks(sim,False)
 
     if blkpad:
       sim.file.blocks = sim.file.blocks + blkpad
-      sim.tasks = sim.tasks + tskpad
+      sim.mapTasks = sim.mapTasks + tskpad
 

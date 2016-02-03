@@ -114,10 +114,10 @@ def placeOriginalTask(queue,taskid):
     attempts = []
     for i in sim.file.blocks[taskid]:
       for j in xrange(0,CONF.NUMNODE):
-        attempts.append(Attempt(i,j))
+        attempts.append(MapAttempt(i,j))
     for att in attempts:
       psim = sim.clone()
-      psim.addAttempt(taskid,att)
+      psim.addAttempt(taskid,att,True)
       psim.prob /= len(attempts)
       queue.append(psim)
 
@@ -177,7 +177,7 @@ def placeBackupTask(queue,taskid):
       attempts = SPEC.getPossibleBackups(sim,taskid)
       for att in attempts:
         psim = sim.clone()
-        psim.addAttempt(taskid,att)
+        psim.addAttempt(taskid,att,True)
         psim.prob /= len(attempts)
         queue.append(psim)
 
@@ -293,8 +293,8 @@ def test_ShouldSpec():
   sim = SimTopology(CONF,(0,-1))
   sim.runstage = 0
   sim.file.blocks = [[1, 0, 3], [1, 0, 3]]
-  sim.addAttempt(0,Attempt(0,0))
-  sim.addAttempt(1,Attempt(0,0))
+  sim.addAttempt(0,MapAttempt(0,0),True)
+  sim.addAttempt(1,MapAttempt(0,0),True)
   sim.moveStageUp()
   sim.updateProgress()
   print sim.isSlow(sim.tasks[0].attempts[0])
