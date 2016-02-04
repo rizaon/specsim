@@ -18,12 +18,12 @@ class MapAttempt(Attempt):
     return MapAttempt(self.datanode,self.mapnode)
 
 class ReduceAttempt(Attempt):
-  def __init__(self, mapnodes, reducenode):
-    self.mapnodes = mapnodes
+  def __init__(self, mapTasks, reducenode):
+    self.mapTasks = maptasks
     self.reducenode = reducenode
 
   def clone(self):
-    return ReduceAttempt(self.mapnodes,self.reducenode)
+    return ReduceAttempt(self.mapTasks,self.reducenode)
 
 
 class HdfsFile(object):
@@ -136,17 +136,24 @@ class SimTopology(object):
         reduce(lambda x,y: x+self.getMapTaskProg(y), \
         range(0,len(self.mapTasks)), .0) / len(self.mapTasks)
 
+    if (stage > self.conf.NUMTASK):
+      # calc shuffle progress
+      self.shuffleProgress \
+        reduce(lambda x,y: x+self.getReduceTaskProg(y), \
+        range(0,len(self.reduceTasks)), .0) / len(self.reduceTasks)
+
+  def isBadPath(self,source,sink):
+    badSource = (source == self.badnode) and (self.badnode <> -1)
+    badSink   = (sink == self.badnode) and (self.badnode <> -1)
+    badSourceRack = (self.conf.getRackID(source) == self.badrack) \
+      and (self.badrack <> -1)
+    badSinkRack   = (self.conf.getRackID(sink) == self.badrack) \
+      and (self.badrack <> -1)
+    return (badSource ^ badSink) or (badSourceRack ^ badSinkRack)
+
   def isMapSlow(self,att):
     assert isinstance(att, MapAttempt)
-
-    bdn = (att.datanode == self.badnode) and (self.badnode <> -1)
-    bmp = (att.mapnode == self.badnode) and (self.badnode <> -1)
-    bdnr = (self.conf.getRackID(att.datanode) == self.badrack) \
-      and (self.badrack <> -1)
-    bmpr = (self.conf.getRackID(att.mapnode) == self.badrack) \
-      and (self.badrack <> -1)
-    return ((not bdn and bmp) or (bdn and not bmp)) or \
-      ((not bdnr and bmpr) or (bdnr and not bmpr))
+    return self.isBadPath(att.datanode, att.mapnode)
 
   def getMapProg(self):
     return self.mapProgress
@@ -154,11 +161,22 @@ class SimTopology(object):
   def getShuffleProg(self):
     return self.shuffleProgress
 
-
   """TODO: fix me to max(attempt progress)"""
   def getMapTaskProg(self,tid):
     att = self.mapTasks[tid].attempts[-1]
     return 0.0 if self.isMapSlow(att) else 1.0
+
+  """TODO: fix me to max(attempt progress)"""
+  def getReduceTaskProg(self,tid):
+    att = self.reduceTasks[tid].attempts[-1]
+    tp = (1.0/3.0)/len(att.mapTasks)
+    prog = 0.0
+    for i in xrange(0,len(self.mapTasks)):
+      if self.getMapTaskProg(i)>=1.0:
+        mapnode = self.mapTasks[i].attempts[-1].mapnode
+        if not self.isBadPath(mapnode.att.reducenode):
+          prog += tp
+    return prog
 
   def getCount(self):
     return self.count
