@@ -132,7 +132,6 @@ class SimTopology(object):
 
     if (self.runstage >= 0):
       # calc map progress
-      tp = 1.0/(len(self.getMapTasks()))
       self.mapProgress = \
         reduce(lambda x,y: x+self.getMapTaskProg(y), \
         range(0,len(self.mapTasks)), .0) / len(self.mapTasks)

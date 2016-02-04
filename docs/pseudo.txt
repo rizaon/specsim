@@ -1,0 +1,50 @@
+
+
+def SpeculateTask(task):
+  foreach attempt in task:
+    rackData = Rack(attempt.datanode)
+    rackMap = Rack(attempt.mapnode)
+    TriedRack[rackMap] += 1
+    TriedRack[rackData] += 1
+    TriedMap[attempt.mapnode] += 1
+    TriedData[attempt.datanode] += 1
+
+  def NegativeScore(placement):
+    rackData = Rack(placement.datanode)
+    rackMap = Rack(placement.mapnode)
+    return (TriedRack[rackMap] + TriedRack[rackData])*10 +
+      (TriedMap[placement.mapnode] + TriedData[placement.datanode])
+
+  possibleBackup = AllPossiblePlacement()
+  leastScore = min(NegativeScore() over all possibleBackup)
+  return filter(possibleBackup, having NegativeScore() == leastScore)
+
+
+
+def PathGroup(task):
+  attempt = lastAttempt(task)
+  a = RackOf(attempt.datanode)
+  b = RackOf(attempt.mapnode)
+  if a<b:
+    swap(a,b)
+  return (a,b)
+
+def SpeculateGroup(tasks):
+  if BasicSECanTrigger():
+    return
+
+  groups = group(task, by PathGroup())
+  avgGroupProg = avg(GroupProg() over all groups)
+  leastProg = min(GroupProg() over all groups)
+
+  if avgGroupProg - leastGroupProg <= 0.2:
+    """ all group slow """
+    foreach group in groups:
+       if GroupProg(group) == leastProg:
+         speculate only 1 task in this group
+  else:
+    """ there are group that slower than average """
+    foreach group in groups:
+       if avgGroupProg - GroupProg(group) > 0.2:
+         speculate entire task in group
+    
