@@ -5,11 +5,11 @@ class Conf(object):
     self.NUMNODE = 6
     self.NUMRACK = 3
     """ TODO: change to NUMMAP """
-    self.NUMTASK = 2
+    self.NUMMAP = 2
     self.NUMREDUCE = 2
-    self.NUMBLOCK = self.NUMTASK
+    self.NUMBLOCK = self.NUMMAP
     """ TODO: change to MAPSTAGE """
-    self.NUMSTAGE = 3
+    self.MAPSTAGE = 3
     self.SHUFFLESTAGE = 2
     self.NUMREPL = 3
 

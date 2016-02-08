@@ -88,7 +88,7 @@ class SimTopology(object):
 
     self.mapTasks = []
     self.reduceTasks = []
-    for i in xrange(0,self.conf.NUMTASK):
+    for i in xrange(0,self.conf.NUMMAP):
       self.mapTasks.append(MapTask())
 
     self.badnode = failure[0]
@@ -135,7 +135,7 @@ class SimTopology(object):
         reduce(lambda x,y: x+self.getMapTaskProg(y), \
         range(0,len(self.mapTasks)), .0) / len(self.mapTasks)
 
-    if (stage > self.conf.NUMSTAGE):
+    if (stage > self.conf.MAPSTAGE):
       # calc shuffle progress
       self.shuffleProgress = \
         reduce(lambda x,y: x+self.getReduceTaskProg(y), \

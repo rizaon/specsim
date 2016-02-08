@@ -123,7 +123,7 @@ class PermTypeChecker(object):
   def getLimpTaskIDs(self,sim):
     limp = []
     if sim.runstage >= 0:
-      for i in xrange(0,self.conf.NUMTASK):
+      for i in xrange(0,self.conf.NUMMAP):
         if sim.isMapSlow(sim.getMapTasks()[i].attempts[-1]):
           limp.append(i)
     return limp
@@ -205,7 +205,7 @@ class Printer(object):
   def isLimplock(self,sim):
     limp = False
     if sim.runstage >= 0:
-      for i in xrange(0,self.conf.NUMTASK):
+      for i in xrange(0,self.conf.NUMMAP):
         limp = limp or sim.isMapSlow(sim.getMapTasks()[i].attempts[-1])
     return limp
 

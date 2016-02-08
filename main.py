@@ -128,7 +128,7 @@ def permuteOriginalTask(queue):
   for sim in queue:
     sim.moveStageUp()
 
-  for i in xrange(0,CONF.NUMTASK):
+  for i in xrange(0,CONF.NUMMAP):
     queue = placeOriginalTask(queue,i)
     if CONF.EnableDeepOpt:
       queue = reduceTaskPerms(queue, i+1)
@@ -191,11 +191,11 @@ def permuteBackupTask(queue,numbackup):
 
   if isinstance(SPEC, PathSE):
 #    (speced,queue) = SPEC.specPathGroup(queue)
-    for i in xrange(0,CONF.NUMTASK):
+    for i in xrange(0,CONF.NUMMAP):
       queue = placeBackupTask(queue,i)
 #    queue = speced + queue
   else:
-    for i in xrange(0,CONF.NUMTASK):
+    for i in xrange(0,CONF.NUMMAP):
       queue = placeBackupTask(queue,i)
 
   for sim in queue:
@@ -210,7 +210,7 @@ def reduceByTasksBitmap(queue):
   ret = dict()
   for sim in queue:
     if CONF.EnableTaskSymmetry:
-      OPT.reorderTasks(sim, CONF.NUMTASK)
+      OPT.reorderTasks(sim, CONF.NUMMAP)
     id = BC.getTasksBitmap(sim)
     if id in ret:
       sameperm = ret[id]
@@ -236,26 +236,26 @@ def main():
   simqueue = permuteFailure()
 
   """ stage -1: permute datablocks  """
-  if CONF.NUMSTAGE > -1:
+  if CONF.MAPSTAGE > -1:
     simqueue = permuteBlock(simqueue)
     if CONF.EnableStateCollapsing:
       simqueue = reduceBlockPerms(simqueue, CONF.NUMBLOCK)
     timer.stop()
     timer.report("Up to block placement",simqueue)
 
-    if CONF.NUMSTAGE == 0:
+    if CONF.MAPSTAGE == 0:
       PRINT.printPerms(simqueue)
       exit(0)    
 
   """ stage  0: permute original tasks """
-  if CONF.NUMSTAGE > 0:
+  if CONF.MAPSTAGE > 0:
     simqueue = permuteOriginalTask(simqueue)
     if CONF.EnableStateCollapsing:
-      simqueue = reduceTaskPerms(simqueue, CONF.NUMTASK)
+      simqueue = reduceTaskPerms(simqueue, CONF.NUMMAP)
     timer.stop()
     timer.report("Up to task placement",simqueue)
 
-    if CONF.NUMSTAGE == 1:
+    if CONF.MAPSTAGE == 1:
       PRINT.printPerms(simqueue)
       exit(0)
 
@@ -266,10 +266,10 @@ def main():
 
   """ stage  1: run SE """
   numbackup = 1
-  while numbackup < CONF.NUMSTAGE:
+  while numbackup < CONF.MAPSTAGE:
     simqueue = permuteBackupTask(simqueue,numbackup)
     if CONF.EnableStateCollapsing:
-      simqueue = reduceTaskPerms(simqueue, CONF.NUMTASK)
+      simqueue = reduceTaskPerms(simqueue, CONF.NUMMAP)
     timer.stop()
     timer.report("Up to %dth backup placement" % numbackup,simqueue)
     numbackup += 1
