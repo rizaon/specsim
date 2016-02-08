@@ -4,20 +4,24 @@ def SpeculateTask(task):
   foreach attempt in task:
     rackData = Rack(attempt.datanode)
     rackMap = Rack(attempt.mapnode)
-    TriedRack[rackMap] += 1
-    TriedRack[rackData] += 1
-    TriedMap[attempt.mapnode] += 1
-    TriedData[attempt.datanode] += 1
+    ScRack[rackMap] += 1
+    ScRack[rackData] += 1
+    ScMap[attempt.mapnode] += 1
+    ScData[attempt.datanode] += 1
 
   def NegativeScore(placement):
-    rackData = Rack(placement.datanode)
-    rackMap = Rack(placement.mapnode)
-    return (TriedRack[rackMap] + TriedRack[rackData])*10 +
-      (TriedMap[placement.mapnode] + TriedData[placement.datanode])
+    rackData = Rack(path.datanode)
+    rackMap = Rack(path.mapnode)
+    rackScore = ScRack[rackMap] + ScRack[rackData]
+    nodeScore = ScMap[path.mapnode] + ScData[path.datanode])
+    nps = rackScore*10 + nodeScore
+    return nps
+
 
   possibleBackup = AllPossiblePlacement()
-  leastScore = min(NegativeScore() over all possibleBackup)
-  return filter(possibleBackup, having NegativeScore() == leastScore)
+  leastScore = min(NegativeScore() of all possibleBackup)
+  backups = filter(possibleBackup, \
+    having NegativeScore() == leastScore)
 
 
 
