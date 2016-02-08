@@ -18,12 +18,11 @@ class MapAttempt(Attempt):
     return MapAttempt(self.datanode,self.mapnode)
 
 class ReduceAttempt(Attempt):
-  def __init__(self, mapTasks, reducenode):
-    self.mapTasks = maptasks
+  def __init__(self, reducenode):
     self.reducenode = reducenode
 
   def clone(self):
-    return ReduceAttempt(self.mapTasks,self.reducenode)
+    return ReduceAttempt(self.reducenode)
 
 
 class HdfsFile(object):
@@ -136,9 +135,9 @@ class SimTopology(object):
         reduce(lambda x,y: x+self.getMapTaskProg(y), \
         range(0,len(self.mapTasks)), .0) / len(self.mapTasks)
 
-    if (stage > self.conf.NUMTASK):
+    if (stage > self.conf.NUMSTAGE):
       # calc shuffle progress
-      self.shuffleProgress \
+      self.shuffleProgress = \
         reduce(lambda x,y: x+self.getReduceTaskProg(y), \
         range(0,len(self.reduceTasks)), .0) / len(self.reduceTasks)
 
@@ -154,6 +153,17 @@ class SimTopology(object):
   def isMapSlow(self,att):
     assert isinstance(att, MapAttempt)
     return self.isBadPath(att.datanode, att.mapnode)
+
+  def isReduceSlow(self,att):
+    assert isinstance(att, ReduceAttempt)
+    for i in xrange(0,len(self.mapTasks)):
+      if self.getMapTaskProg(i)>=1.0:
+        mapnode = self.mapTasks[i].attempts[-1].mapnode
+        if self.isBadPath(mapnode,att.reducenode):
+          return True
+      else:
+        return True
+    return False
 
   def getMapProg(self):
     return self.mapProgress
@@ -174,7 +184,7 @@ class SimTopology(object):
     for i in xrange(0,len(self.mapTasks)):
       if self.getMapTaskProg(i)>=1.0:
         mapnode = self.mapTasks[i].attempts[-1].mapnode
-        if not self.isBadPath(mapnode.att.reducenode):
+        if not self.isBadPath(mapnode,att.reducenode):
           prog += tp
     return prog
 
