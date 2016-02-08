@@ -10,14 +10,16 @@ class Conf(object):
     self.NUMBLOCK = self.NUMTASK
     """ TODO: change to MAPSTAGE """
     self.NUMSTAGE = 3
-    self.REDUCESTAGE = 2
+    self.SHUFFLESTAGE = 2
     self.NUMREPL = 3
 
     self.EnableStateCollapsing = True
     self.EnableTaskSymmetry = self.EnableStateCollapsing and True
     self.EnableDeepOpt = self.EnableStateCollapsing and True
     self.EnableOffRackReplica = False
+    self.EnableTaskDelay = True
     self.PrintPermutations = True
+    self.PrintGroupSummary = True
 
   def getRackID(self,node):
     return node % self.NUMRACK

@@ -20,7 +20,7 @@ class BasicSE(Speculator):
       # no attempt ever scheduled, run original task
       return True
     else:
-      return sim.getMapProg() - sim.getMapTaskProg(tid) > 0.2
+      return sim.getMapTaskProg(tid) < 1.0
 
   def isAttemptAllowed(self,sim,tid,att):
     assert isinstance(att, MapAttempt)
@@ -57,7 +57,7 @@ class FAReadSE(Speculator):
       # no attempt ever scheduled, run original task
       return True
     else:
-      return sim.getMapProg() - sim.getMapTaskProg(tid) > 0.2
+      return sim.getMapTaskProg(tid) < 1.0
 
   def isAttemptAllowed(self,sim,tid,att):
     assert isinstance(att, MapAttempt)
@@ -87,7 +87,7 @@ class PathSE(Speculator):
     self.conf = conf
     self.bc = Bitcoder(conf)
     self.pr = Printer(conf)
-    self.HARDPREF = False
+    self.HARDPREF = True
     self.delayed = []
 
   def filterForDelay(self,queue):
@@ -141,7 +141,7 @@ class PathSE(Speculator):
     else:
       return (rM,rD)
 
-  def getPathGroups(self,sim):
+  """def getPathGroups(self,sim):
     d = {}
     mapTasks = sim.getMapTasks()
     for tid in range(0,len(mapTasks)):
@@ -153,15 +153,15 @@ class PathSE(Speculator):
         prog = (prog*len(tasks)+sim.getMapTaskProg(tid))/(len(tasks)+1)
         tasks.append(tid)
         d[key] = (prog,tasks)
-    return d
+    return d"""
 
-  def hasBasicSpec(self,sim):
+  """def hasBasicSpec(self,sim):
     for tid in range(0,len(sim.getMapTasks())):
       if self.needBackup(sim,tid):
         return True
-    return False
+    return False"""
 
-  def specTask(self,queue,tid):
+  """def specTask(self,queue,tid):
     tmp = queue
     queue = []
 
@@ -173,9 +173,9 @@ class PathSE(Speculator):
         psim.addAttempt(tid,att,True)
         psim.prob /= len(attempts)
         queue.append(psim)
-    return queue
+    return queue"""
 
-  def specPathGroup(self,queue):
+  """def specPathGroup(self,queue):
     tmp = queue
     queue = []
     haveSpec = []
@@ -185,7 +185,7 @@ class PathSE(Speculator):
       if (sim.getMapProg()>=1.0) or (self.hasBasicSpec(sim)):
         haveSpec.append(sim)
       else:
-        """ do path group spec here """
+        # do path group spec here
         groups = self.getPathGroups(sim)
         tospec = [sim]
 
@@ -197,7 +197,7 @@ class PathSE(Speculator):
             slowestProg = prog
 
         if gAvgProg-slowestProg <= 0.2:
-          """ no group pass threshold, spec one for each slowest group"""
+          #no group pass threshold, spec one for each slowest group
           #print "Single group, single task spec"
           for k,(prog,tids) in groups.items():
             if prog == slowestProg:
@@ -206,7 +206,7 @@ class PathSE(Speculator):
                   tospec = self.specTask(tospec,tid)
                   break
         else:
-          """ speculate slowest group """
+          #speculate slowest group
           #print "All group spec"
           for k,(prog,tids) in groups.items():
             if gAvgProg-prog > 0.2:
@@ -216,14 +216,21 @@ class PathSE(Speculator):
 
         queue.extend(tospec)
 
-    return (queue,haveSpec)
+    return (queue,haveSpec)"""
 
   def needBackup(self,sim,tid):
     if (sim.getMapTasks()[tid].attempts == []):
       # no attempt ever scheduled, run original task
       return True
     else:
-      return sim.getMapProg() - sim.getMapTaskProg(tid) > 0.2
+      return sim.getMapTaskProg(tid) < 1.0
+
+  def needReduceBackup(self,sim,tid):
+    if (sim.getReduceTasks()[tid].attempts == []):
+      # no attempt ever scheduled, run original task
+      return True
+    else:
+      return sim.getReduceTaskProg(tid) < 1.0
 
   def toPointDict(self,lst):
     d = {}
@@ -248,6 +255,17 @@ class PathSE(Speculator):
     pref = pref*10 + retryMN + retryDN
     return pref
 
+  def getReduceNegPref(self,att,triedRN,triedRR):
+    rRack = self.conf.getRackID(att.reducenode)
+
+    retryRN = triedRN.get(att.reducenode,0)
+    pointRR  = triedRR.get(rRack,0)
+
+    pref = 0
+    pref = pref*10 + pointRR
+    pref = pref*10 + retryRN
+    return pref
+
   def debug_PrintPoint(self,sim,task,attID):
     atts = task.attempts[:attID]
     triedMN = self.toPointDict([a.mapnode for a in atts])
@@ -259,12 +277,38 @@ class PathSE(Speculator):
     print triedRR
     print self.getNegPref(task.attempts[attID],triedMN, triedDN,triedRR)
 
-  def getPossibleBackups(self,sim,tid):
+  def getTaskPrefScores(self,sim,tid):
     atts = sim.getMapTasks()[tid].attempts
     triedMN = self.toPointDict([a.mapnode for a in atts])
     triedDN = self.toPointDict([a.datanode for a in atts])
     triedRR = self.toPointDict([self.conf.getRackID(a.datanode) for a in atts] + \
       [self.conf.getRackID(a.mapnode) for a in atts])
+    return (triedMN,triedDN,triedRR)
+
+  def getJobPrefScores(self,sim,tid):
+    """ TODO: good inter-rack path should have score 0 """
+    mapnodes = []
+    datanodes = []
+    for task in sim.getMapTasks():
+      for att in task.attempts:
+        if sim.isMapSlow(att):
+          mapnodes.append(att.mapnode)
+          datanodes.append(att.datanode)
+
+    triedMN = self.toPointDict(mapnodes)
+    triedDN = self.toPointDict(datanodes)
+    triedRR = self.toPointDict([self.conf.getRackID(a) for a in mapnodes] + \
+      [self.conf.getRackID(a) for a in datanodes])
+    return (triedMN,triedDN,triedRR)
+
+  def getPossibleBackups(self,sim,tid):
+    triedMN = [a.mapnode for a in (sim.getMapTasks()[tid].attempts)]
+
+    # get preference scores from task attempts history
+    # (scMN,scDN,scRR) = self.getTaskPrefScores(sim,tid)
+
+    # get preference scores from all task attempts history in jobs
+    (scMN,scDN,scRR) = self.getJobPrefScores(sim,tid)
 
     backups = []
     locatedDN = sim.file.blocks[tid]
@@ -272,8 +316,36 @@ class PathSE(Speculator):
       for map in xrange(0,self.conf.NUMNODE):
         if map not in triedMN:
           att = MapAttempt(dn,map)
-          pref =  self.getNegPref(att,triedMN, triedDN,triedRR)
+          pref =  self.getNegPref(att,scMN, scDN,scRR)
           backups.append((pref,att))
+    backups = sorted(backups)
+    if self.HARDPREF:
+      lowest = backups[0][0]
+      lowpref = lambda (x,y): x <= lowest
+      backups = filter(lowpref,backups)
+    return [y for (x,y) in backups]
+
+  def getPossibleReduceBackups(self,sim,tid):
+    triedRN = [a.reducenode for a in (sim.getReduceTasks()[tid].attempts)]
+
+    # get preference scores from task attempts history
+    # (scMN,scDN,scRR) = self.getTaskPrefScores(sim,tid)
+    # scRN = self.toPointDict(triedRN)
+
+    # get preference scores from all task attempts history in jobs
+    (scMN,scDN,scRR) = self.getJobPrefScores(sim,tid)
+    slowRN = []
+    for task in self.getReduceTasks():
+      for att in task.attempts:
+        if sim.isReduceSlow(att):
+          slowRN.append(att.reducenode)
+    scRN = self.toPointDict(slowRN)
+
+    for red in xrange(0,self.conf.NUMNODE):
+      if red not in triedRN:
+        att = ReduceAttempt(red)
+        pref =  self.getReduceNegPref(att,scRN,scRR)
+        backups.append((pref,att))
     backups = sorted(backups)
     if self.HARDPREF:
       lowest = backups[0][0]

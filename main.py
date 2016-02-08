@@ -16,7 +16,6 @@ CONF = Conf()
 #SPEC = BasicSE(CONF)
 #SPEC = FAReadSE(CONF)
 SPEC = PathSE(CONF)
-SPEC.HARDPREF = True
 BC = Bitcoder(CONF)
 OPT = Optimizer(CONF)
 PRINT = Printer(CONF)
@@ -191,10 +190,10 @@ def permuteBackupTask(queue,numbackup):
     sim.moveStageUp()
 
   if isinstance(SPEC, PathSE):
-    (speced,queue) = SPEC.specPathGroup(queue)
+#    (speced,queue) = SPEC.specPathGroup(queue)
     for i in xrange(0,CONF.NUMTASK):
       queue = placeBackupTask(queue,i)
-    queue = speced + queue
+#    queue = speced + queue
   else:
     for i in xrange(0,CONF.NUMTASK):
       queue = placeBackupTask(queue,i)
@@ -260,7 +259,7 @@ def main():
       PRINT.printPerms(simqueue)
       exit(0)
 
-    if isinstance(SPEC, PathSE):
+    if CONF.EnableTaskDelay and isinstance(SPEC, PathSE):
       simqueue = SPEC.filterForDelay(simqueue)
 #      for sim in SPEC.delayed:
 #        PRINT.printPerm(0,sim)
