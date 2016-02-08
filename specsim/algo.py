@@ -389,12 +389,12 @@ class Optimizer(object):
 
   def reorderTasks(self,sim,ignoreFileBitmap = False):
     tuples = []
-    stage = sim.runstage + 1
+    mapstage = self.conf.NUMMAP
     mapTasks = sim.getMapTasks()
 
     for i in xrange(0,len(mapTasks)):
       code = (0 if ignoreFileBitmap \
-        else self.bc.getBlockBitmap(sim,sim.file.blocks[i])) * (16**stage) + \
+        else self.bc.getBlockBitmap(sim,sim.file.blocks[i])) * (16**mapstage) + \
           self.bc.getTaskBitmap(sim,mapTasks[i])
       tuple = (code, \
         sim.file.blocks[i], \

@@ -56,17 +56,17 @@ class Bitcoder(object):
     return state
 
   def getTaskBitmap(self,sim,task):
-    stage = sim.runstage + 1
+    stage = self.conf.NUMMAP
     return reduce(lambda x,y: x*16 + \
       self.getAttemptBitmap(sim,y),task.attempts,0) * 16**(stage-len(task.attempts))
 
   def getTasksBitmap(self,sim):
-    stage = sim.runstage + 1
+    stage = self.conf.NUMMAP
     return reduce(lambda x,y: x*(16**stage) + \
       self.getTaskBitmap(sim,y)*(16**(stage-len(y.attempts))),sim.getMapTasks(),0)
 
   def getSimBitmap(self,sim):
-    stage = sim.runstage + 1
+    stage = self.conf.NUMMAP
     return self.getFileBitmap(sim) * (16**(len(sim.getMapTasks())*stage)) + \
       self.getTasksBitmap(sim)
 
@@ -86,7 +86,7 @@ class Bitcoder(object):
     return code
 
   def getFormattedSimBitmap(self,sim):
-    taskBitLength = (sim.runstage+1)*4
+    mapsBitLength = self.NUMMAP*4
     NUMBLOCK = self.conf.NUMBLOCK
     NUMREPL = self.conf.NUMREPL
 
@@ -95,7 +95,7 @@ class Bitcoder(object):
 
     taskBits = []
     for task in sim.getMapTasks():
-      st = ("{0:0" + str(taskBitLength) + "b}").format(self.getTaskBitmap(sim,task))
+      st = ("{0:0" + str(mapsBitLength) + "b}").format(self.getTaskBitmap(sim,task))
       taskbit = ",".join([st[i:i+4] for i in xrange(0,len(st),4)])
       taskBits.append(taskbit)
     taskstr = "|".join(taskBits)
