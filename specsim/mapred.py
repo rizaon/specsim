@@ -129,13 +129,14 @@ class SimTopology(object):
   def updateProgress(self):
     stage = self.runstage + 1
 
-    if (stage >= 0):
+    if (stage > 0):
       # calc map progress
       self.mapProgress = \
         reduce(lambda x,y: x+self.getMapTaskProg(y), \
         range(0,len(self.mapTasks)), .0) / len(self.mapTasks)
 
-    if (stage >= self.conf.MAPSTAGE):
+    if (stage > self.conf.MAPSTAGE):
+      print stage, self.conf.MAPSTAGE
       # calc shuffle progress
       self.shuffleProgress = \
         reduce(lambda x,y: x+self.getReduceTaskProg(y), \

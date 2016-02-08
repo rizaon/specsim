@@ -56,17 +56,18 @@ class Bitcoder(object):
     return state
 
   def getTaskBitmap(self,sim,task):
-    stage = self.conf.NUMMAP
-    return reduce(lambda x,y: x*16 + \
-      self.getAttemptBitmap(sim,y),task.attempts,0) * 16**(stage-len(task.attempts))
+    stage = self.conf.MAPSTAGE
+    taskcode = reduce(lambda x,y: x*16 + \
+      self.getAttemptBitmap(sim,y),task.attempts,0)
+    return taskcode * 16**(stage-len(task.attempts))
 
   def getTasksBitmap(self,sim):
-    stage = self.conf.NUMMAP
+    stage = self.conf.MAPSTAGE
     return reduce(lambda x,y: x*(16**stage) + \
       self.getTaskBitmap(sim,y)*(16**(stage-len(y.attempts))),sim.getMapTasks(),0)
 
   def getSimBitmap(self,sim):
-    stage = self.conf.NUMMAP
+    stage = self.conf.MAPSTAGE
     return self.getFileBitmap(sim) * (16**(len(sim.getMapTasks())*stage)) + \
       self.getTasksBitmap(sim)
 
@@ -86,7 +87,7 @@ class Bitcoder(object):
     return code
 
   def getFormattedSimBitmap(self,sim):
-    mapsBitLength = self.NUMMAP*4
+    mapsBitLength = self.conf.MAPSTAGE*4
     NUMBLOCK = self.conf.NUMBLOCK
     NUMREPL = self.conf.NUMREPL
 
