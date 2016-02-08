@@ -24,6 +24,9 @@ class TimeReporter(object):
 
 
 class Bitcoder(object):
+  """ BIT ORDER (most to least significant):   """
+  """   blockbits, maptaskbits, reducetaskbits """
+
   def __init__(self,conf):
     self.conf = conf
 
@@ -54,39 +57,18 @@ class Bitcoder(object):
 
   def getTaskBitmap(self,sim,task):
     stage = sim.runstage + 1
-#### aligned direction ####
     return reduce(lambda x,y: x*16 + \
       self.getAttemptBitmap(sim,y),task.attempts,0) * 16**(stage-len(task.attempts))
 
-#### reversed direction ####
-#    task.attempts.reverse()
-#    bit = reduce(lambda x,y: x*16 + \
-#      self.getAttemptBitmap(sim,y),task.attempts,0) #* 16**(stage-len(task.attempts))
-#    task.attempts.reverse()
-#    return bit
-
   def getTasksBitmap(self,sim):
     stage = sim.runstage + 1
-#### aligned direction ####
     return reduce(lambda x,y: x*(16**stage) + \
       self.getTaskBitmap(sim,y)*(16**(stage-len(y.attempts))),sim.getMapTasks(),0)
 
-#### reversed direction ####
-#    return reduce(lambda x,y: x*(16**stage) + \
-#      self.getTaskBitmap(sim,y),sim.getMapTasks(),0)
-
   def getSimBitmap(self,sim):
     stage = sim.runstage + 1
-#### aligned direction ####
     return self.getFileBitmap(sim) * (16**(len(sim.getMapTasks())*stage)) + \
       self.getTasksBitmap(sim)
-
-#### reversed direction ####
-#    return self.getTasksBitmap(sim) * \
-#      (4**(len(sim.file.blocks)*len(sim.file.blocks[0]))) + \
-#      self.getFileBitmap(sim)
-
-
 
   def getSimBitmapPartial(self,sim,size):
     blk = len(sim.getMapTasks())
@@ -249,6 +231,27 @@ class Printer(object):
     print "PermType:", self.ck.checkPermType(v)
     print "====================================="
 
+  def printPermGroups(self,queue):
+    tuples = map(lambda x: ((self.bc.getTasksBitmap(x),self.bc.getFileBitmap(x)),x), queue)
+    groups = dict()
+    for k,v in sorted(tuples, key=lambda x:x[0]):
+      key = self.ck.checkPermType(v)
+      if key in groups:
+        (key,ct,ptg) = groups[key]
+        ct  += v.getCount()
+        ptg += v.prob
+        groups[key] = (key,ct,ptg)
+      else:
+        (key,ct,ptg) = (key,v.getCount(),v.prob)
+        groups[key] = (key,ct,ptg)
+
+    for k,v in groups.items():
+      print "Perm Type: ", k
+      print "Total count: ", v[1]
+      print "Probability: ", v[2]
+      print "====================================="
+    print ""
+
 
   def printPerms(self,queue):
     uniquePerm = len(queue)
@@ -279,8 +282,13 @@ class Printer(object):
     print "Coverage: ", succprob+failprob
     print "Succ prob: ", succprob
     print "Fail prob: ", failprob
-    print "====================================="
+    print "=====================================\n"
+
+    if self.conf.PrintGroupSummary:
+      self.printPermGroups(queue)
+
     if self.conf.PrintPermutations:
       tuples = map(lambda x: ((self.bc.getTasksBitmap(x),self.bc.getFileBitmap(x)),x), queue)
       for k,v in sorted(tuples, key=lambda x:x[0]):
         self.printPerm(k,v)
+
