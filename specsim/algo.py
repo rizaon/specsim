@@ -8,7 +8,16 @@ import math
 class Speculator:
   __metaclass__ = ABCMeta
   @abstractmethod
+  def needBackup(self,sim,tid): pass
+
+  @abstractmethod
+  def needReduceBackup(self,sim,tid): pass
+
+  @abstractmethod
   def getPossibleBackups(self,sim,tid): pass
+
+  @abstractmethod
+  def getPossibleReduceBackups(self,sim,tid): pass
 
 
 class BasicSE(Speculator):
@@ -22,7 +31,14 @@ class BasicSE(Speculator):
     else:
       return sim.getMapTaskProg(tid) < 1.0
 
-  def isAttemptAllowed(self,sim,tid,att):
+  def needReduceBackup(self,sim,tid):
+    if (sim.getReduceTasks()[tid].attempts == []):
+      # no attempt ever scheduled, run original task
+      return True
+    else:
+      return sim.getReduceTaskProg(tid) < 1.0
+
+  def isMapAttemptAllowed(self,sim,tid,att):
     assert isinstance(att, MapAttempt)
 
     dislike = [a.mapnode for a in sim.getMapTasks()[tid].attempts]
@@ -47,19 +63,20 @@ class BasicSE(Speculator):
           backups.append(MapAttempt(dn,map))
     return backups
 
+  def getPossibleReduceBackups(self,sim,tid):
+    backups = []
+    dislike = [a.reducenode for a in sim.getReduceTasks()[tid].attempts]
+    for red in xrange(0,self.conf.NUMNODE):
+      if red not in dislike:
+        backups.append(ReduceAttempt(red))
+    return backups
 
-class FAReadSE(Speculator):
+
+class FAReadSE(BasicSE):
   def __init__(self,conf):
-    self.conf = conf
+    super(FAReadSE, self).__init__(conf)
 
-  def needBackup(self,sim,tid):
-    if (sim.getMapTasks()[tid].attempts == []):
-      # no attempt ever scheduled, run original task
-      return True
-    else:
-      return sim.getMapTaskProg(tid) < 1.0
-
-  def isAttemptAllowed(self,sim,tid,att):
+  def isMapAttemptAllowed(self,sim,tid,att):
     assert isinstance(att, MapAttempt)
 
     dislike = [a.mapnode for a in sim.getMapTasks()[tid].attempts]
@@ -77,14 +94,14 @@ class FAReadSE(Speculator):
     for dn in locatedDN:
       for map in xrange(0,self.conf.NUMNODE):
         att = MapAttempt(dn,map)
-        if self.isAttemptAllowed(sim,tid,att):
+        if self.isMapAttemptAllowed(sim,tid,att):
           backups.append(att)
     return backups
 
 
-class PathSE(Speculator):
+class PathSE(BasicSE):
   def __init__(self,conf):
-    self.conf = conf
+    super(PathSE, self).__init__(conf)
     self.bc = Bitcoder(conf)
     self.pr = Printer(conf)
     self.HARDPREF = True
@@ -218,20 +235,6 @@ class PathSE(Speculator):
 
     return (queue,haveSpec)"""
 
-  def needBackup(self,sim,tid):
-    if (sim.getMapTasks()[tid].attempts == []):
-      # no attempt ever scheduled, run original task
-      return True
-    else:
-      return sim.getMapTaskProg(tid) < 1.0
-
-  def needReduceBackup(self,sim,tid):
-    if (sim.getReduceTasks()[tid].attempts == []):
-      # no attempt ever scheduled, run original task
-      return True
-    else:
-      return sim.getReduceTaskProg(tid) < 1.0
-
   def toPointDict(self,lst):
     d = {}
     for a in lst:
@@ -335,12 +338,13 @@ class PathSE(Speculator):
     # get preference scores from all task attempts history in jobs
     (scMN,scDN,scRR) = self.getJobPrefScores(sim,tid)
     slowRN = []
-    for task in self.getReduceTasks():
+    for task in sim.getReduceTasks():
       for att in task.attempts:
         if sim.isReduceSlow(att):
           slowRN.append(att.reducenode)
     scRN = self.toPointDict(slowRN)
 
+    backups = []
     for red in xrange(0,self.conf.NUMNODE):
       if red not in triedRN:
         att = ReduceAttempt(red)
