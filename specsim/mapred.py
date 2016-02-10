@@ -77,7 +77,8 @@ class ReduceTask(Task):
 class SimTopology(object):
   def __init__(self, conf, failure):
     self.conf = conf
-    self.runstage = -1
+    self.mapstage = -1
+    self.reducestage = -1
     self.mapProgress = .0
     self.shuffleProgress = .0
     self.currentstate = 0
@@ -90,6 +91,8 @@ class SimTopology(object):
     self.reduceTasks = []
     for i in xrange(0,self.conf.NUMMAP):
       self.mapTasks.append(MapTask())
+    for i in xrange(0,self.conf.NUMREDUCE):
+      self.reduceTasks.append(ReduceTask())
 
     self.badnode = failure[0]
     self.badrack = failure[1]
@@ -101,7 +104,8 @@ class SimTopology(object):
 
   def clone(self):
     klon = SimTopology(self.conf,(self.badnode,self.badrack))
-    klon.runstage = self.runstage
+    klon.mapstage = self.mapstage
+    klon.reducestage = self.reducestage
     klon.mapProgress = self.mapProgress
     klon.shuffleProgress = self.shuffleProgress
     klon.currentstate = self.currentstate
@@ -123,20 +127,20 @@ class SimTopology(object):
   def setBlocks(self,blockid,repl):
     self.file.blocks[blockid] = repl
 
-  def moveStageUp(self):
-    self.runstage += 1
+  def moveMapStageUp(self):
+    self.mapstage += 1
+
+  def moveReduceStageUp(self):
+    self.reducestage += 1
 
   def updateProgress(self):
-    stage = self.runstage + 1
-
-    if (stage > 0):
+    if (self.mapstage >= 0):
       # calc map progress
       self.mapProgress = \
         reduce(lambda x,y: x+self.getMapTaskProg(y), \
         range(0,len(self.mapTasks)), .0) / len(self.mapTasks)
 
-    if (stage > self.conf.MAPSTAGE):
-      print stage, self.conf.MAPSTAGE
+    if (self.reducestage >= 0):
       # calc shuffle progress
       self.shuffleProgress = \
         reduce(lambda x,y: x+self.getReduceTaskProg(y), \
@@ -180,7 +184,7 @@ class SimTopology(object):
   """TODO: fix me to max(attempt progress)"""
   def getReduceTaskProg(self,tid):
     att = self.reduceTasks[tid].attempts[-1]
-    tp = (1.0/3.0)/len(att.mapTasks)
+    tp = (1.0/3.0)/len(self.mapTasks)
     prog = 0.0
     for i in xrange(0,len(self.mapTasks)):
       if self.getMapTaskProg(i)>=1.0:

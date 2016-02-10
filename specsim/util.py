@@ -41,7 +41,8 @@ class Bitcoder(object):
       sim.file.blocks, 0)
     return blockbit
 
-  def getAttemptBitmap(self,sim,att):
+
+  def getMapAttemptBitmap(self,sim,att):
     state = 0
     bdn = (att.datanode == sim.badnode) and (sim.badnode <> -1)
     bmp = (att.mapnode == sim.badnode) and (sim.badnode <> -1)
@@ -55,21 +56,54 @@ class Bitcoder(object):
     state = state * 2 + bmpr
     return state
 
-  def getTaskBitmap(self,sim,task):
-    stage = self.conf.MAPSTAGE
+  def getMapTaskBitmap(self,sim,task):
+    bitset = self.conf.MAPSTAGE
     taskcode = reduce(lambda x,y: x*16 + \
-      self.getAttemptBitmap(sim,y),task.attempts,0)
-    return taskcode * 16**(stage-len(task.attempts))
+      self.getMapAttemptBitmap(sim,y),task.attempts,0)
+    return taskcode * 16**(bitset-len(task.attempts))
 
-  def getTasksBitmap(self,sim):
-    stage = self.conf.MAPSTAGE
-    return reduce(lambda x,y: x*(16**stage) + \
-      self.getTaskBitmap(sim,y)*(16**(stage-len(y.attempts))),sim.getMapTasks(),0)
+  def getMapTasksBitmap(self,sim):
+    bitset = self.conf.MAPSTAGE
+    return reduce(lambda x,y: x*(16**bitset) + \
+      self.getMapTaskBitmap(sim,y)*(16**(bitset-len(y.attempts))),sim.getMapTasks(),0)
+
+
+  def getReduceAttemptBitmap(self,sim,att):
+    state = 0
+    brn = (att.reducenode == sim.badnode) and (sim.badnode <> -1)
+    brnr = (self.conf.getRackID(att.reducenode) == sim.badrack) \
+      and (sim.badrack <> -1)
+    state = state * 2 + brn
+    state = state * 2 + brnr
+    return state
+
+  def getReduceTaskBitmap(self,sim,task):
+    bitset = self.conf.SHUFFLESTAGE
+    taskcode = reduce(lambda x,y: x*4 + \
+      self.getReduceAttemptBitmap(sim,y),task.attempts,0)
+    return taskcode * 4**(bitset-len(task.attempts))
+
+  def getReduceTasksBitmap(self,sim):
+    bitset = self.conf.SHUFFLESTAGE
+    return reduce(lambda x,y: x*(4**bitset) + \
+      self.getReduceTaskBitmap(sim,y)*(4**(bitset-len(y.attempts))),sim.getReduceTasks(),0)
+
+
+  def getAllTasksBitmap(self,sim):
+    mapbitset = self.conf.MAPSTAGE
+    redbitset = self.conf.SHUFFLESTAGE
+    bits = 0
+    bits = bits * (16**(len(sim.getMapTasks())*mapbitset)) + self.getMapTasksBitmap(sim)
+    bits = bits * (4**(len(sim.getReduceTasks())*redbitset)) + self.getReduceTasksBitmap(sim)
+    return bits
 
   def getSimBitmap(self,sim):
-    stage = self.conf.MAPSTAGE
-    return self.getFileBitmap(sim) * (16**(len(sim.getMapTasks())*stage)) + \
-      self.getTasksBitmap(sim)
+    mapbitset = self.conf.MAPSTAGE
+    redbitset = self.conf.SHUFFLESTAGE
+    bits = self.getFileBitmap(sim)
+    bits = bits * (16**(len(sim.getMapTasks())*mapbitset)) + self.getMapTasksBitmap(sim)
+    bits = bits * (4**(len(sim.getReduceTasks())*redbitset)) + self.getReduceTasksBitmap(sim)
+    return bits
 
   def getSimBitmapPartial(self,sim,size):
     blk = len(sim.getMapTasks())
@@ -88,6 +122,7 @@ class Bitcoder(object):
 
   def getFormattedSimBitmap(self,sim):
     mapsBitLength = self.conf.MAPSTAGE*4
+    redsBitLength = self.conf.SHUFFLESTAGE*2
     NUMBLOCK = self.conf.NUMBLOCK
     NUMREPL = self.conf.NUMREPL
 
@@ -96,12 +131,19 @@ class Bitcoder(object):
 
     taskBits = []
     for task in sim.getMapTasks():
-      st = ("{0:0" + str(mapsBitLength) + "b}").format(self.getTaskBitmap(sim,task))
+      st = ("{0:0" + str(mapsBitLength) + "b}").format(self.getMapTaskBitmap(sim,task))
       taskbit = ",".join([st[i:i+4] for i in xrange(0,len(st),4)])
       taskBits.append(taskbit)
     taskstr = "|".join(taskBits)
 
-    return dnstr+"-"+taskstr
+    redBits = []
+    for task in sim.getReduceTasks():
+      st = ("{0:0" + str(redsBitLength) + "b}").format(self.getReduceTaskBitmap(sim,task))
+      taskbit = ",".join([st[i:i+2] for i in xrange(0,len(st),2)])
+      redBits.append(taskbit)
+    redstr = "|".join(redBits)
+
+    return dnstr+"-"+taskstr+"-"+redstr
 
 
 class PermType(Enum):
@@ -123,7 +165,7 @@ class PermTypeChecker(object):
 
   def getLimpTaskIDs(self,sim):
     limp = []
-    if sim.runstage >= 0:
+    if sim.mapstage >= 0:
       for i in xrange(0,self.conf.NUMMAP):
         if sim.isMapSlow(sim.getMapTasks()[i].attempts[-1]):
           limp.append(i)
@@ -196,7 +238,16 @@ class Printer(object):
       task = sim.getMapTasks()[i]
       for j in xrange(0,len(task.attempts)):
         att = task.attempts[j]
-        tuple = ("t%d_%d" % (i,j), att.datanode, att.mapnode)
+        tuple = ("m%d_%d" % (i,j), att.datanode, att.mapnode)
+        if (tuple[1] == -1) and (tuple[2] == -1):
+          continue
+        else:
+          topo.append(tuple)
+    for i in xrange(0,len(sim.getReduceTasks())):
+      task = sim.getReduceTasks()[i]
+      for j in xrange(0,len(task.attempts)):
+        att = task.attempts[j]
+        tuple = ("r%d_%d" % (i,j), att.reducenode)
         if (tuple[1] == -1) and (tuple[2] == -1):
           continue
         else:
@@ -205,7 +256,7 @@ class Printer(object):
 
   def isLimplock(self,sim):
     limp = False
-    if sim.runstage >= 0:
+    if sim.mapstage >= 0:
       for i in xrange(0,self.conf.NUMMAP):
         limp = limp or sim.isMapSlow(sim.getMapTasks()[i].attempts[-1])
     return limp
@@ -221,7 +272,8 @@ class Printer(object):
     if self.conf.EnableStateCollapsing:
       print "Hash bit: ", self.bc.getFormattedSimBitmap(v)
     print "Job prog: ", v.getMapProg()
-    print "Stage: ", v.runstage
+    print "Map stage: ", v.mapstage
+    print "Red stage: ", v.reducestage
     print "Total count: ", v.getCount()
     print "Probability: ", v.prob
     print "Bad node: ", v.badnode
@@ -233,7 +285,7 @@ class Printer(object):
     print "====================================="
 
   def printPermGroups(self,queue):
-    tuples = map(lambda x: ((self.bc.getTasksBitmap(x),self.bc.getFileBitmap(x)),x), queue)
+    tuples = map(lambda x: ((self.bc.getAllTasksBitmap(x),self.bc.getFileBitmap(x)),x), queue)
     groups = dict()
     for k,v in sorted(tuples, key=lambda x:x[0]):
       key = self.ck.checkPermType(v)
@@ -289,7 +341,7 @@ class Printer(object):
       self.printPermGroups(queue)
 
     if self.conf.PrintPermutations:
-      tuples = map(lambda x: ((self.bc.getTasksBitmap(x),self.bc.getFileBitmap(x)),x), queue)
+      tuples = map(lambda x: ((self.bc.getAllTasksBitmap(x),self.bc.getFileBitmap(x)),x), queue)
       for k,v in sorted(tuples, key=lambda x:x[0]):
         self.printPerm(k,v)
 

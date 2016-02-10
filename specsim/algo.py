@@ -389,22 +389,21 @@ class Optimizer(object):
 
   def reorderTasks(self,sim,ignoreFileBitmap = False):
     tuples = []
-    mapstage = self.conf.NUMMAP
-    mapTasks = sim.getMapTasks()
+    mapbitset = self.conf.NUMMAP
 
-    for i in xrange(0,len(mapTasks)):
+    for i in xrange(0,len(sim.mapTasks)):
       code = (0 if ignoreFileBitmap \
-        else self.bc.getBlockBitmap(sim,sim.file.blocks[i])) * (16**mapstage) + \
-          self.bc.getTaskBitmap(sim,mapTasks[i])
+        else self.bc.getBlockBitmap(sim,sim.file.blocks[i])) * (16**mapbitset) + \
+          self.bc.getMapTaskBitmap(sim,sim.mapTasks[i])
       tuple = (code, \
         sim.file.blocks[i], \
-        mapTasks[i])
+        sim.mapTasks[i])
       tuples.append(tuple)
 
     tuples = sorted(tuples, key = lambda x:x[0:2])
-    for i in xrange(0,len(mapTasks)):
+    for i in xrange(0,len(sim.mapTasks)):
       sim.file.blocks[i] = tuples[i][1]
-      mapTasks[i] = tuples[i][2]
+      sim.mapTasks[i] = tuples[i][2]
 
   def reorderTasksPartial(self,sim,size):
     blk = len(sim.file.blocks)
@@ -422,3 +421,15 @@ class Optimizer(object):
       sim.file.blocks = sim.file.blocks + blkpad
       sim.mapTasks = sim.mapTasks + tskpad
 
+  def reorderReduceTasks(self,sim,ignoreFileBitmap = False):
+    tuples = []
+
+    for i in xrange(0,len(sim.reduceTasks)):
+      code = self.bc.getReduceTaskBitmap(sim,sim.reduceTasks[i])
+      tuple = (code, \
+        sim.reduceTasks[i])
+      tuples.append(tuple)
+
+    tuples = sorted(tuples, key = lambda x:x[0:2])
+    for i in xrange(0,len(sim.reduceTasks)):
+      sim.reduceTasks[i] = tuples[i][1]

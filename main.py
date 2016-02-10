@@ -126,7 +126,7 @@ def placeOriginalTask(queue,taskid):
 
 def permuteOriginalTask(queue):
   for sim in queue:
-    sim.moveStageUp()
+    sim.moveMapStageUp()
 
   for i in xrange(0,CONF.NUMMAP):
     queue = placeOriginalTask(queue,i)
@@ -137,6 +137,41 @@ def permuteOriginalTask(queue):
     sim.updateProgress()
   return queue
 
+
+def placeOriginalReduceTask(queue,taskid):
+  TIME.start()
+
+  tmp = queue
+  queue = []
+  while len(tmp)>0:
+    sim = tmp.pop(0)
+    attempts = []
+    for j in xrange(0,CONF.NUMNODE):
+      attempts.append(ReduceAttempt(j))
+    for att in attempts:
+      psim = sim.clone()
+      psim.addAttempt(taskid,att,False)
+      psim.prob /= len(attempts)
+      queue.append(psim)
+
+  TIME.stop()
+  TIME.report("Reduce task %d permutation done!" % taskid,queue)
+  return queue
+
+def permuteOriginalReduceTask(queue):
+  for sim in queue:
+    sim.moveReduceStageUp()
+
+  for i in xrange(0,CONF.NUMREDUCE):
+    queue = placeOriginalReduceTask(queue,i)
+    if CONF.EnableDeepOpt:
+      queue = reduceTaskPerms(queue, CONF.NUMMAP)
+
+  for sim in queue:
+    sim.updateProgress()
+  return queue
+
+
 def reduceTaskPerms(queue,tasksize):
   TIME.start()
 
@@ -144,6 +179,7 @@ def reduceTaskPerms(queue,tasksize):
   for sim in queue:
     if CONF.EnableTaskSymmetry:
       OPT.reorderTasksPartial(sim,tasksize)
+      OPT.reorderReduceTasks(sim)
     id = BC.getSimBitmapPartial(sim,tasksize)
     if id in ret:
       sameperm = ret[id]
@@ -185,9 +221,9 @@ def placeBackupTask(queue,taskid):
   TIME.report("Backup task %d permutation done!" % taskid,queue)
   return queue
 
-def permuteBackupTask(queue,numbackup):
+def permuteBackupTask(queue):
   for sim in queue:
-    sim.moveStageUp()
+    sim.moveMapStageUp()
 
   if isinstance(SPEC, PathSE):
 #    (speced,queue) = SPEC.specPathGroup(queue)
@@ -204,6 +240,48 @@ def permuteBackupTask(queue,numbackup):
   return queue
 
 
+def placeReduceBackupTask(queue,taskid):
+  TIME.start()
+  nobackup = []
+
+  tmp = queue
+  queue = []
+  while len(tmp)>0:
+    sim = tmp.pop(0)
+    if not SPEC.needReduceBackup(sim,taskid):
+      nobackup.append(sim)
+    else:
+      attempts = SPEC.getPossibleReduceBackups(sim,taskid)
+      for att in attempts:
+        psim = sim.clone()
+        psim.addAttempt(taskid,att,True)
+        psim.prob /= len(attempts)
+        queue.append(psim)
+
+  queue = nobackup + queue
+  TIME.stop()
+  TIME.report("Backup task %d permutation done!" % taskid,queue)
+  return queue
+
+def permuteReduceBackupTask(queue):
+  for sim in queue:
+    sim.moveReduceStageUp()
+
+  if isinstance(SPEC, PathSE):
+#    (speced,queue) = SPEC.specPathGroup(queue)
+    for i in xrange(0,CONF.NUMREDUCE):
+      queue = placeReduceBackupTask(queue,i)
+#    queue = speced + queue
+  else:
+    for i in xrange(0,CONF.NUMREDUCE):
+      queue = placeReduceBackupTask(queue,i)
+
+  for sim in queue:
+    sim.updateProgress()
+
+  return queue
+
+
 def reduceByTasksBitmap(queue):
   TIME.start()
 
@@ -211,10 +289,10 @@ def reduceByTasksBitmap(queue):
   for sim in queue:
     if CONF.EnableTaskSymmetry:
       OPT.reorderTasks(sim, CONF.NUMMAP)
-    id = BC.getTasksBitmap(sim)
+    id = BC.getAllTasksBitmap(sim)
     if id in ret:
       sameperm = ret[id]
-      if BC.getFileBitmap(sameperm) < BC.getFileBitmap(sim):
+      if BC.getFileBitmap(sameperm) > BC.getFileBitmap(sim):
         sim.count += sameperm.count
         sim.prob += sameperm.prob
         ret[id] = sim
@@ -255,24 +333,35 @@ def main():
     timer.stop()
     timer.report("Up to task placement",simqueue)
 
-    if CONF.MAPSTAGE == 1:
-      PRINT.printPerms(simqueue)
-      exit(0)
-
-    if CONF.EnableTaskDelay and isinstance(SPEC, PathSE):
-      simqueue = SPEC.filterForDelay(simqueue)
-#      for sim in SPEC.delayed:
-#        PRINT.printPerm(0,sim)
-
-  """ stage  1: run SE """
-  numbackup = 1
-  while numbackup < CONF.MAPSTAGE:
-    simqueue = permuteBackupTask(simqueue,numbackup)
+  """ stage  0: permute original reduce tasks """
+  if CONF.SHUFFLESTAGE > 0:
+    simqueue = permuteOriginalReduceTask(simqueue)
     if CONF.EnableStateCollapsing:
       simqueue = reduceTaskPerms(simqueue, CONF.NUMMAP)
     timer.stop()
-    timer.report("Up to %dth backup placement" % numbackup,simqueue)
-    numbackup += 1
+    timer.report("Up to reduce task placement",simqueue)
+
+
+  if CONF.MAPSTAGE == 1:
+    PRINT.printPerms(simqueue)
+    exit(0)
+
+  """ Task delaying """
+  if CONF.EnableTaskDelay and isinstance(SPEC, PathSE):
+    simqueue = SPEC.filterForDelay(simqueue)
+#   for sim in SPEC.delayed:
+#     PRINT.printPerm(0,sim)
+
+
+  """ stage  1 - (MAPSTAGE-1): run SE """
+  numattempt = 1
+  while numattempt < CONF.MAPSTAGE:
+    numattempt += 1
+    simqueue = permuteBackupTask(simqueue)
+    if CONF.EnableStateCollapsing:
+      simqueue = reduceTaskPerms(simqueue, CONF.NUMMAP)
+    timer.stop()
+    timer.report("Up to %dth map attempt placement" % numattempt,simqueue)
 
 
   if CONF.EnableStateCollapsing:
@@ -294,11 +383,11 @@ def test_ShouldSpec():
   sim.file.blocks = [[1, 0, 3], [1, 0, 3]]
   sim.addAttempt(0,MapAttempt(0,0),True)
   sim.addAttempt(1,MapAttempt(0,0),True)
-  sim.moveStageUp()
+  sim.moveMapStageUp()
   sim.updateProgress()
   print sim.isSlow(sim.tasks[0].attempts[0])
   print SPEC.hasBasicSpec(sim)
-  PRINT.printPerm((BC.getTasksBitmap(sim),BC.getFileBitmap(sim)),sim)
+  PRINT.printPerm((BC.getMapTasksBitmap(sim),BC.getFileBitmap(sim)),sim)
 
 if __name__ == '__main__':
   main()
