@@ -164,8 +164,6 @@ def permuteOriginalReduceTask(queue):
 
   for i in xrange(0,CONF.NUMREDUCE):
     queue = placeOriginalReduceTask(queue,i)
-    if CONF.EnableDeepOpt:
-      queue = reduceTaskPerms(queue, CONF.NUMMAP)
 
   for sim in queue:
     sim.updateProgress()
@@ -334,12 +332,12 @@ def main():
     timer.report("Up to task placement",simqueue)
 
   """ stage  0: permute original reduce tasks """
-  if CONF.SHUFFLESTAGE > 0:
+  """if CONF.SHUFFLESTAGE > 0:
     simqueue = permuteOriginalReduceTask(simqueue)
     if CONF.EnableStateCollapsing:
       simqueue = reduceTaskPerms(simqueue, CONF.NUMMAP)
     timer.stop()
-    timer.report("Up to reduce task placement",simqueue)
+    timer.report("Up to reduce task placement",simqueue)"""
 
 
   if CONF.MAPSTAGE == 1:

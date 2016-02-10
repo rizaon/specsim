@@ -178,11 +178,15 @@ class SimTopology(object):
 
   """TODO: fix me to max(attempt progress)"""
   def getMapTaskProg(self,tid):
+    if not self.mapTasks[tid].attempts:
+      return 0.0
     att = self.mapTasks[tid].attempts[-1]
     return 0.0 if self.isMapSlow(att) else 1.0
 
   """TODO: fix me to max(attempt progress)"""
   def getReduceTaskProg(self,tid):
+    if not self.reduceTasks[tid].attempts:
+      return 0.0
     att = self.reduceTasks[tid].attempts[-1]
     tp = (1.0/3.0)/len(self.mapTasks)
     prog = 0.0

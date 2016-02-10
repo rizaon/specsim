@@ -2,6 +2,7 @@
 
 from enum import Enum
 import time, logging
+from .mapred import *
 
 
 class TimeReporter(object):
@@ -129,21 +130,21 @@ class Bitcoder(object):
     dnbit = ("{0:0" + str(2*NUMBLOCK*NUMREPL) + "b}").format(self.getFileBitmap(sim))
     dnstr = ",".join([dnbit[i:i+2*NUMREPL] for i in xrange(0,len(dnbit),2*NUMREPL)])
 
-    taskBits = []
+    mapBits = []
     for task in sim.getMapTasks():
       st = ("{0:0" + str(mapsBitLength) + "b}").format(self.getMapTaskBitmap(sim,task))
       taskbit = ",".join([st[i:i+4] for i in xrange(0,len(st),4)])
-      taskBits.append(taskbit)
-    taskstr = "|".join(taskBits)
+      mapBits.append(taskbit)
+    taskstr = "-".join(mapBits)
 
     redBits = []
     for task in sim.getReduceTasks():
       st = ("{0:0" + str(redsBitLength) + "b}").format(self.getReduceTaskBitmap(sim,task))
       taskbit = ",".join([st[i:i+2] for i in xrange(0,len(st),2)])
       redBits.append(taskbit)
-    redstr = "|".join(redBits)
+    redstr = "-".join(redBits)
 
-    return dnstr+"-"+taskstr+"-"+redstr
+    return dnstr+"|"+taskstr+"|"+redstr
 
 
 class PermType(Enum):
@@ -171,17 +172,29 @@ class PermTypeChecker(object):
           limp.append(i)
     return limp
 
-  def hasBadDatasource(self,topo,att):
-    bdn = (att.datanode == topo.badnode) and (topo.badnode <> -1)
-    bdnr = (self.conf.getRackID(att.datanode) == topo.badrack) \
+  def isBadNode(self,topo,node):
+    badnode = (node == topo.badnode) and (topo.badnode <> -1)
+    badrack = (self.conf.getRackID(node) == topo.badrack) \
       and (topo.badrack <> -1)
-    return bdn or bdnr
+    return badnode or badrack
 
-  def hasBadWorker(self,topo,att):
-    bmp = (att.mapnode == topo.badnode) and (topo.badnode <> -1)
-    bmpr = (self.conf.getRackID(att.mapnode) == topo.badrack) \
-      and (sim.badrack <> -1)
-    return bmp or bmpr
+  def hasBadDatasource(self,topo,att):
+    if isinstance(att, MapAttempt):
+      return self.isBadNode(topo,att.datanode)
+    else:
+      for map in top.getMapTasks():
+        att = map.attempts[-1]
+        if self.isBadNode(topo,att.mapnode):
+          return True
+      return False
+
+  def hasBadCompute(self,topo,att):
+    worker = -1
+    if isinstance(att, MapAttempt):
+      worker = att.mapnode
+    else:
+      worker = att.reducenode
+    return self.isBadNode(topo,worker)
 
   def checkPermType(self,topo):
     """ This check assume there are only 2 task """
@@ -225,11 +238,61 @@ class PermTypeChecker(object):
     # something wrong if returning here
     return PermType.UNK
 
+class PermStringType(PermTypeChecker):
+  def __init__(self,conf):
+    super(PermStringType, self).__init__(conf)
+
+  def checkPermType(self,topo):
+    str = ""
+    mapscore = 1.0
+    shufflescore = 1.0/3.0
+
+    if topo.getMapProg()>=mapscore:
+      str += "(NM)"
+    else:
+      mapStat = []
+      mapTasks = topo.getMapTasks()
+      for i in range(0,len(mapTasks)):
+        if topo.getMapTaskProg(i)>=mapscore:
+          mapStat.append("N")
+        else:
+          attStat = []
+          for att in mapTasks[i].attempts:
+            if self.hasBadDatasource(topo,att):
+              attStat.append("D")
+            else:
+              attStat.append("C")
+          mapStat.append("".join(attStat))
+      str += ",".join(sorted(mapStat))
+      return str
+
+    str += "|"
+    if topo.getShuffleProg()>=shufflescore:
+      str += "(NR)"
+    else:
+      redStat = []
+      redTasks = topo.getReduceTasks()
+      for i in range(0,len(redTasks)):
+        if topo.getReduceTaskProg(i)>=shufflescore:
+          redStat.append("N")
+        else:
+          attStat = []
+          for att in redTasks[i].attempts:
+            if self.hasBadCompute(topo,att):
+              attStat.append("C")
+            else:
+              attStat.append("D")
+          redStat.append("".join(attStat))
+      str += ",".join(sorted(redStat))
+
+    return str
+
 
 class Printer(object):
   def __init__(self, conf):
     self.bc = Bitcoder(conf)
-    self.ck = PermTypeChecker(conf)
+#    self.ck = PermTypeChecker(conf)
+    self.ck = PermStringType(conf)
     self.conf = conf
 
   def getTaskTopology(self,sim):
@@ -259,6 +322,9 @@ class Printer(object):
     if sim.mapstage >= 0:
       for i in xrange(0,self.conf.NUMMAP):
         limp = limp or sim.isMapSlow(sim.getMapTasks()[i].attempts[-1])
+    if sim.reducestage >= 0:
+      for i in xrange(0,self.conf.NUMREDUCE):
+        limp = limp or sim.isReduceSlow(sim.getReduceTasks()[i].attempts[-1])
     return limp
 
   def printSim(self,sim):
@@ -285,7 +351,7 @@ class Printer(object):
     print "====================================="
 
   def printPermGroups(self,queue):
-    tuples = map(lambda x: ((self.bc.getAllTasksBitmap(x),self.bc.getFileBitmap(x)),x), queue)
+    tuples = map(lambda x: ((self.bc.getFileBitmap(x),self.bc.getAllTasksBitmap(x)),x), queue)
     groups = dict()
     for k,v in sorted(tuples, key=lambda x:x[0]):
       key = self.ck.checkPermType(v)
@@ -298,11 +364,9 @@ class Printer(object):
         (key,ct,ptg) = (key,v.getCount(),v.prob)
         groups[key] = (key,ct,ptg)
 
-    for k,v in groups.items():
-      print "Perm Type: ", k
-      print "Total count: ", v[1]
-      print "Probability: ", v[2]
-      print "====================================="
+    print "Perm Type\tTotal count\tProbability"
+    for k,v in sorted(groups.items()):
+      print "%s\t%d\t%f" % (k,v[1],v[2])
     print ""
 
 
@@ -341,7 +405,7 @@ class Printer(object):
       self.printPermGroups(queue)
 
     if self.conf.PrintPermutations:
-      tuples = map(lambda x: ((self.bc.getAllTasksBitmap(x),self.bc.getFileBitmap(x)),x), queue)
+      tuples = map(lambda x: ((self.bc.getFileBitmap(x),self.bc.getAllTasksBitmap(x)),x), queue)
       for k,v in sorted(tuples, key=lambda x:x[0]):
         self.printPerm(k,v)
 
