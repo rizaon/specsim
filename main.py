@@ -246,13 +246,14 @@ def placeReduceBackupTask(queue,taskid):
   queue = []
   while len(tmp)>0:
     sim = tmp.pop(0)
-    if not SPEC.needReduceBackup(sim,taskid):
+    if not SPEC.needReduceBackup(sim,taskid) or\
+          (sim.getMapProg()<1.0):
       nobackup.append(sim)
     else:
       attempts = SPEC.getPossibleReduceBackups(sim,taskid)
       for att in attempts:
         psim = sim.clone()
-        psim.addAttempt(taskid,att,True)
+        psim.addAttempt(taskid,att,False)
         psim.prob /= len(attempts)
         queue.append(psim)
 
@@ -332,12 +333,12 @@ def main():
     timer.report("Up to task placement",simqueue)
 
   """ stage  0: permute original reduce tasks """
-  """if CONF.SHUFFLESTAGE > 0:
+  if CONF.SHUFFLESTAGE > 0:
     simqueue = permuteOriginalReduceTask(simqueue)
     if CONF.EnableStateCollapsing:
       simqueue = reduceTaskPerms(simqueue, CONF.NUMMAP)
     timer.stop()
-    timer.report("Up to reduce task placement",simqueue)"""
+    timer.report("Up to reduce task placement",simqueue)
 
 
   if CONF.MAPSTAGE == 1:
@@ -351,7 +352,7 @@ def main():
 #     PRINT.printPerm(0,sim)
 
 
-  """ stage  1 - (MAPSTAGE-1): run SE """
+  """ map stage  1 - (MAPSTAGE-1): run map SE """
   numattempt = 1
   while numattempt < CONF.MAPSTAGE:
     numattempt += 1
@@ -360,6 +361,17 @@ def main():
       simqueue = reduceTaskPerms(simqueue, CONF.NUMMAP)
     timer.stop()
     timer.report("Up to %dth map attempt placement" % numattempt,simqueue)
+
+
+  """ reduce stage  1 - (MAPSTAGE-1): run reduce SE """
+  numattempt = 1
+  while numattempt < CONF.SHUFFLESTAGE:
+    numattempt += 1
+    simqueue = permuteReduceBackupTask(simqueue)
+    if CONF.EnableStateCollapsing:
+      simqueue = reduceTaskPerms(simqueue, CONF.NUMMAP)
+    timer.stop()
+    timer.report("Up to %dth reduce attempt placement" % numattempt,simqueue)
 
 
   if CONF.EnableStateCollapsing:

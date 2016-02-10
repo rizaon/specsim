@@ -98,6 +98,8 @@ class SimTopology(object):
     self.badrack = failure[1]
 
   def addAttempt(self,tid,att,isMap):
+#    assert (isinstance(att,MapAttempt) and isMap) or\
+#        (isinstance(att,ReduceAttempt) and not isMap)
     tasks = self.getMapTasks() if isMap else self.getReduceTasks()
     task = tasks[tid]
     task.addAttempt(att)

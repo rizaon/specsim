@@ -254,7 +254,7 @@ class PermStringType(PermTypeChecker):
       mapTasks = topo.getMapTasks()
       for i in range(0,len(mapTasks)):
         if topo.getMapTaskProg(i)>=mapscore:
-          mapStat.append("N")
+          mapStat.append("A")
         else:
           attStat = []
           for att in mapTasks[i].attempts:
@@ -274,7 +274,7 @@ class PermStringType(PermTypeChecker):
       redTasks = topo.getReduceTasks()
       for i in range(0,len(redTasks)):
         if topo.getReduceTaskProg(i)>=shufflescore:
-          redStat.append("N")
+          redStat.append("A")
         else:
           attStat = []
           for att in redTasks[i].attempts:
